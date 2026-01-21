@@ -110,12 +110,12 @@ TEST_F(PlannedTrajectoryVisualizationTest, PublishTopics) {
 
   ASSERT_TRUE(WaitForTopics());
 
-  // Do not test the fine shape of the marker
+  // Do not test the detailed shape of the marker
   const auto marker_array_msg = marker_array_msg_.value();
   ASSERT_EQ(marker_array_msg.markers.size(), 1);
   EXPECT_EQ(marker_array_msg.markers[0].header.frame_id, "odom");
   EXPECT_EQ(marker_array_msg.markers[0].ns, "link7");
-  // Value in zero posture + value for bogie movement
+  // Value at zero posture + value of cart movement
   EXPECT_NEAR(marker_array_msg.markers[0].pose.position.x, 0.1, kEpsilon);
   EXPECT_NEAR(marker_array_msg.markers[0].pose.position.y, -0.25, kEpsilon);
   EXPECT_NEAR(marker_array_msg.markers[0].pose.position.z, 0.95, kEpsilon);

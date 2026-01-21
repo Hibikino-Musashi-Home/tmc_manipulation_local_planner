@@ -25,7 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
-/// @brief Converter test
+/// @brief Test of Converter
 
 #include <string>
 
@@ -47,6 +47,7 @@ class ConverterTest : public TestBase {
   tmc_planning_msgs::msg::TsrLinkConstraint link_const_;
   tmc_planning_msgs::msg::RangeJointConstraint rjc_;
   tmc_planning_msgs::msg::LinearConstraint linear_const_;
+  tmc_planning_msgs::msg::LinearConstraintWithPose linear_const_with_pose_;
   geometry_msgs::msg::Transform base_to_target_pos_;
 };
 
@@ -78,6 +79,18 @@ void ConverterTest::SetUp() {
   linear_const_.axis.y = 0.2;
   linear_const_.axis.z = 0.3;
   linear_const_.distance = 0.4;
+
+  linear_const_with_pose_.end_frame_id = "hand";
+  linear_const_with_pose_.reference.header.frame_id = "map";
+  linear_const_with_pose_.reference.pose.position.x = 0.5;
+  linear_const_with_pose_.reference.pose.position.y = 0.6;
+  linear_const_with_pose_.reference.pose.position.z = 0.7;
+  linear_const_with_pose_.reference.pose.orientation.w = -0.707;
+  linear_const_with_pose_.reference.pose.orientation.z = 0.707;
+  linear_const_with_pose_.axis.x = 0.8;
+  linear_const_with_pose_.axis.y = 0.9;
+  linear_const_with_pose_.axis.z = 1.0;
+  linear_const_with_pose_.distance = 1.1;
 }
 
 TEST_F(ConverterTest, Get2DPose) {
@@ -136,6 +149,7 @@ TEST_F(ConverterTest, TransformConstraint) {
   msg.soft_joint_constraints.push_back(rjc_);
   msg.hard_link_constraints.push_back(link_const_);
   msg.hard_joint_constraints.push_back(rjc_);
+  msg.initial_motion_linear_constraint = linear_const_with_pose_;
   msg.hard_path_link_constraints.push_back(link_const_);
   msg.soft_path_joint_constraints.push_back(rjc_);
   std::string origin_frame = "odom";
@@ -161,13 +175,14 @@ TEST_F(ConverterTest, TransformConstraint) {
   EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsr.origin_to_tsr.orientation.w, std::cos(1.5707945 / 2));
   EXPECT_DOUBLE_EQ(msg.soft_joint_constraints[0].min.multi_dof_joint_state.transforms[0].translation.x, 1.0);
   EXPECT_DOUBLE_EQ(msg.soft_joint_constraints[0].min.multi_dof_joint_state.transforms[0].translation.y, -1.0);
-  // Other constraints check only the representative value
+  // Check only representative values for other constraints
   EXPECT_DOUBLE_EQ(msg.hard_link_constraints[0].tsr.origin_to_tsr.position.x, 1.0);
   EXPECT_DOUBLE_EQ(msg.hard_joint_constraints[0].min.multi_dof_joint_state.transforms[0].translation.x, 1.0);
   EXPECT_DOUBLE_EQ(msg.hard_path_link_constraints[0].tsr.origin_to_tsr.position.x, 1.0);
   EXPECT_DOUBLE_EQ(msg.soft_path_joint_constraints[0].min.multi_dof_joint_state.transforms[0].translation.x, 1.0);
+  EXPECT_DOUBLE_EQ(msg.initial_motion_linear_constraint.reference.pose.position.x, -0.5);
 
-  // When coordinates cannot be converted
+  // When coordinate transformation is not possible
   link_const_.header.frame_id = "test";
   msg.soft_link_constraints.push_back(link_const_);
   ASSERT_FALSE(TransformConstraints(origin_frame, tf_timeout, tf_buffer, msg));
@@ -181,6 +196,7 @@ TEST_F(ConverterTest, ConvertConstraints) {
   msg.hard_link_constraints.push_back(link_const_);
   msg.hard_joint_constraints.push_back(rjc_);
   msg.goal_relative_linear_constraint = linear_const_;
+  msg.initial_motion_linear_constraint = linear_const_with_pose_;
   msg.hard_path_link_constraints.push_back(link_const_);
   msg.soft_path_joint_constraints.push_back(rjc_);
   tmc_robot_local_planner::Constraints constraints;
@@ -194,11 +210,12 @@ TEST_F(ConverterTest, ConvertConstraints) {
   tmc_manipulation_types::RobotState joint_trans = constraints.soft_joint_constraints[0]->Sample();
   EXPECT_DOUBLE_EQ(joint_trans.multi_dof_joint_state.poses[0].translation().x(), 2.0);
   EXPECT_DOUBLE_EQ(joint_trans.multi_dof_joint_state.poses[0].translation().y(), 1.0);
-  // Other constraints check only the representative value
+  // Check only representative values for other constraints
   EXPECT_DOUBLE_EQ(constraints.hard_link_constraints[0]->Sample().translation().x(), 2.0);
   EXPECT_DOUBLE_EQ(constraints.hard_joint_constraints[0]->Sample().multi_dof_joint_state.poses[0].translation().x(),
                    2.0);
   EXPECT_DOUBLE_EQ(constraints.goal_relative_linear_constraint.distance, 0.4);
+  EXPECT_DOUBLE_EQ(constraints.initial_motion_linear_constraint.distance, 1.1);
   EXPECT_DOUBLE_EQ(constraints.hard_path_link_constraints[0]->Sample().translation().x(), 2.0);
   EXPECT_DOUBLE_EQ(
       constraints.soft_path_joint_constraints[0]->Sample().multi_dof_joint_state.poses[0].translation().x(), 2.0);
@@ -227,7 +244,7 @@ TEST_F(ConverterTest, TransformTSRConstraint) {
   EXPECT_DOUBLE_EQ(link_const_.tsr.origin_to_tsr.position.y, -1.0);
   EXPECT_DOUBLE_EQ(link_const_.tsr.origin_to_tsr.orientation.z, std::sin(1.5707945 / 2));
   EXPECT_DOUBLE_EQ(link_const_.tsr.origin_to_tsr.orientation.w, std::cos(1.5707945 / 2));
-  // When coordinates cannot be converted
+  // When coordinate transformation is not possible
   const char* const test_frame = "test";
   ASSERT_FALSE(TransformTSRConstraint(test_frame, tf_timeout, tf_buffer, link_const_));
 }
@@ -283,7 +300,7 @@ TEST_F(ConverterTest, TransformJointConstraint) {
   ASSERT_TRUE(TransformJointConstraint(origin_frame, tf_timeout, tf_buffer, rjc_));
   EXPECT_DOUBLE_EQ(rjc_.min.multi_dof_joint_state.transforms[0].translation.x, 1.0);
   EXPECT_DOUBLE_EQ(rjc_.min.multi_dof_joint_state.transforms[0].translation.y, -1.0);
-  // When coordinates cannot be converted
+  // When coordinate transformation is not possible
   const char* const test_frame = "test";
   ASSERT_FALSE(TransformJointConstraint(test_frame, tf_timeout, tf_buffer, rjc_));
 }
@@ -308,6 +325,23 @@ TEST_F(ConverterTest, ConvertLinearConstraintMsgToLinearConstraint) {
   EXPECT_DOUBLE_EQ(linear_const.axis[1], 0.2);
   EXPECT_DOUBLE_EQ(linear_const.axis[2], 0.3);
   EXPECT_DOUBLE_EQ(linear_const.distance, 0.4);
+}
+
+TEST_F(ConverterTest, ConvertLinearConstraintWithPoseMsgToConvertLinearConstraintMsgToLinearConstraint) {
+  // setup
+  tmc_robot_local_planner::LinearConstraintWithPose linear_const;
+  // Normal test
+  ConvertLinearConstraintMsgToLinearConstraint(linear_const_with_pose_, linear_const);
+  EXPECT_EQ(linear_const.end_frame_id, "hand");
+  EXPECT_DOUBLE_EQ(linear_const.reference.translation().x(), 0.5);
+  EXPECT_DOUBLE_EQ(linear_const.reference.translation().y(), 0.6);
+  EXPECT_DOUBLE_EQ(linear_const.reference.translation().z(), 0.7);
+  EXPECT_NEAR(Eigen::Quaterniond(linear_const.reference.linear()).z(), -0.707, 1.0e-3);
+  EXPECT_NEAR(Eigen::Quaterniond(linear_const.reference.linear()).w(), 0.707, 1.0e-3);
+  EXPECT_DOUBLE_EQ(linear_const.axis[0], 0.8);
+  EXPECT_DOUBLE_EQ(linear_const.axis[1], 0.9);
+  EXPECT_DOUBLE_EQ(linear_const.axis[2], 1.0);
+  EXPECT_DOUBLE_EQ(linear_const.distance, 1.1);
 }
 
 }  // namespace tmc_robot_local_planner_utils

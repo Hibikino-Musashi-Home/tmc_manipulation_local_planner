@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief Trajectory Mixer Class
 #ifndef TMC_ROBOT_LOCAL_PLANNER_TRAJECTORY_MIXER_HPP_
 #define TMC_ROBOT_LOCAL_PLANNER_TRAJECTORY_MIXER_HPP_
 
@@ -39,7 +40,7 @@ class TrajectoryMerger {
  public:
   using Ptr = std::shared_ptr<TrajectoryMerger>;
 
-  /// @brief constructor
+  /// @brief Constructor
   TrajectoryMerger() {}
   /// @brief Destructor
   ~TrajectoryMerger() {}
@@ -51,7 +52,7 @@ class TrajectoryMerger {
     trajectory_ = trajectory;
     return true;
   }
-  /// @brief Unlock the set orbit
+  /// @brief Release the set orbit
   void ClearTrajectory() {
     trajectory_ = T();
   }

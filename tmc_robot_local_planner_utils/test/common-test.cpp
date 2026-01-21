@@ -25,7 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
-/// @brief Common test
+/// @brief Test of Common
 
 #include <cmath>
 
@@ -72,7 +72,7 @@ void CommonTest::SetUp() {
 // }
 
 TEST_F(CommonTest, GetLastPointTest) {
-  // Normal test
+  // Normal test case
   tmc_manipulation_types::RobotState state;
   ASSERT_TRUE(GetLastPoint(trajectory_, state));
   for (int32_t i = 0; i < joint_names_.size(); ++i) {
@@ -89,14 +89,14 @@ TEST_F(CommonTest, GetLastPointTest) {
   trajectory_.joint_trajectory.points[0].time_from_start = 6.0;
   ASSERT_FALSE(GetLastPoint(trajectory_, state));
   trajectory_.joint_trajectory.points[0].time_from_start = 1.0;
-  // When the track of the sky
+  // When the trajectory is empty
   trajectory_.joint_trajectory.points.clear();
   ASSERT_FALSE(GetLastPoint(trajectory_, state));
 }
 
 TEST_F(CommonTest, DeleteTrajectoryPointsAtTime) {
   tf2::Stamped<tmc_manipulation_types::TimedRobotTrajectory> trajectory = trajectory_;
-  // Normal test
+  // Normal test case
   DeleteTrajectoryPointsAtTime(2.0, trajectory);
   EXPECT_EQ(trajectory.joint_trajectory.points.size(), 2);
   for (int32_t i = 0; i < trajectory.joint_trajectory.points.size(); ++i) {
@@ -119,7 +119,7 @@ TEST_F(CommonTest, DeleteTrajectoryPointsAtPoint) {
     }
   }
   int num = 1;
-  // Normal test
+  // Normal test case
   ASSERT_TRUE(DeleteTrajectoryPointsAtPoint(num, trajectory));
   EXPECT_EQ(trajectory.points.size(), point_size - num);
   for (int32_t i = 0; i < point_size - num; ++i) {
@@ -130,7 +130,7 @@ TEST_F(CommonTest, DeleteTrajectoryPointsAtPoint) {
       EXPECT_DOUBLE_EQ(trajectory.points[i].effort[j], static_cast<double>(j + i + 4 + num));
     }
   }
-  // TRAJECTORY score <= NUM ​​will return 1 point
+  // If the number of trajectory points <= num, the last trajectory returns one point
   num = 3;
   ASSERT_TRUE(DeleteTrajectoryPointsAtPoint(num, trajectory));
   EXPECT_EQ(trajectory.points.size(), 1);
@@ -140,25 +140,25 @@ TEST_F(CommonTest, DeleteTrajectoryPointsAtPoint) {
     EXPECT_DOUBLE_EQ(trajectory.points[0].accelerations[i], static_cast<double>(i+5));
     EXPECT_DOUBLE_EQ(trajectory.points[0].effort[i], static_cast<double>(i+6));
   }
-  // When the input value is not larger than 0
+  // When the input value num is not greater than 0
   num = 0;
   ASSERT_FALSE(DeleteTrajectoryPointsAtPoint(num, trajectory));
 }
 
 TEST_F(CommonTest, CheckTimeFromStartsTest) {
-  // Normal test
+  // Normal test case
   ASSERT_TRUE(CheckTimeFromStarts(trajectory_));
-  // When Joint_trajectory and Multi_dof_Trajectory Time_from_start do not match
+  // When time_from_start of joint_trajectory and multi_dof_joint_trajectory do not match
   trajectory_.joint_trajectory.points[0].time_from_start = 1.1;
   ASSERT_FALSE(CheckTimeFromStarts(trajectory_));
   trajectory_.joint_trajectory.points[0].time_from_start = 1.0;
-  // When the 0th and the first Time_from_start were the same
+  // When the 0th and 1st time_from_start are the same
   trajectory_.joint_trajectory.points[1].time_from_start = 1.0;
   trajectory_.multi_dof_joint_trajectory.points[1].time_from_start = 1.0;
   ASSERT_FALSE(CheckTimeFromStarts(trajectory_));
   trajectory_.joint_trajectory.points[1].time_from_start = 2.0;
   trajectory_.multi_dof_joint_trajectory.points[1].time_from_start = 2.0;
-  // When Joint_trajectory Points and Multi_dof_Joint_trajectory Points are not available
+  // When the sizes of joint_trajectory points and multi_dof_joint_trajectory points do not match
   trajectory_.joint_trajectory.points.resize(6);
   trajectory_.joint_trajectory.points[5].time_from_start = 6.0;
   trajectory_.joint_trajectory.points[5].positions.resize(1);
@@ -169,7 +169,7 @@ TEST_F(CommonTest, CheckTimeFromStartsTest) {
 }
 
 TEST_F(CommonTest, SearchConnectablePointTest) {
-  // Normal test
+  // Normal test case
   rclcpp::Time target_time(102, 500000000);
   rclcpp::Time connectable_time;
   tf2::Stamped<tmc_manipulation_types::RobotState> state;
@@ -180,14 +180,14 @@ TEST_F(CommonTest, SearchConnectablePointTest) {
   EXPECT_DOUBLE_EQ(state.joint_state.velocity[0], 0.4);
   EXPECT_DOUBLE_EQ(state.multi_dof_joint_state.poses[0].translation().x(), 0.2);
   EXPECT_DOUBLE_EQ(state.multi_dof_joint_state.twist[0][0], 0.4);
-  // When CheckTimeFromstarts is False
+  // When CheckTimeFromStarts is false
   trajectory_.joint_trajectory.points[0].time_from_start = 6.0;
   ASSERT_FALSE(SearchConnectablePoint(trajectory_, target_time, connectable_time, state));
   trajectory_.joint_trajectory.points[0].time_from_start = 1.0;
-  // When the current time + Perido is not connected on the orbit
+  // When the current time + period does not connect on the trajectory point
   target_time = rclcpp::Time(104, 0);
   ASSERT_FALSE(SearchConnectablePoint(trajectory_, target_time, connectable_time, state));
-  // When the past time is entered
+  // When a past time is input
   target_time = rclcpp::Time(99, 0);
   ASSERT_TRUE(SearchConnectablePoint(trajectory_, target_time, connectable_time, state));
   EXPECT_NEAR(101.0, connectable_time.seconds(), 1e-5);
@@ -198,7 +198,7 @@ TEST_F(CommonTest, SearchConnectablePointTest) {
 }
 
 TEST_F(CommonTest, ShiftTrajectoryTimesTest) {
-  // Normal test
+  // Normal test case
   double shift_time = 0.5;
   tmc_manipulation_types::TimedRobotTrajectory trajectory_out;
   ShiftTrajectoryTimes(trajectory_, shift_time, trajectory_out);
@@ -206,7 +206,7 @@ TEST_F(CommonTest, ShiftTrajectoryTimesTest) {
     EXPECT_DOUBLE_EQ(trajectory_out.joint_trajectory.points[i].time_from_start,
                      trajectory_.joint_trajectory.points[i].time_from_start - shift_time);
   }
-  // When Shift_Time is larger than the first orbital point
+  // When shift_time is greater than the time of the first trajectory point
   shift_time = 1.1;
   trajectory_out = tmc_manipulation_types::TimedRobotTrajectory();
   ShiftTrajectoryTimes(trajectory_, shift_time, trajectory_out);

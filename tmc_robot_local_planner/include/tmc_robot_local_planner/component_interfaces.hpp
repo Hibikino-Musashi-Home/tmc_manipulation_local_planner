@@ -44,7 +44,7 @@ class IGenerator {
   virtual bool Generate(const Constraints& constraints,
                         const tmc_manipulation_types::RobotState& initial_state,
                         double normalized_velocity,
-                        const std::vector<std::string>& ignore_joints,
+                        bool enable_base,
                         std::function<bool()> interrupt,
                         std::vector<tmc_manipulation_types::TimedRobotTrajectory>& trajectories_out) = 0;
 };
@@ -66,6 +66,7 @@ class IValidator {
 
   virtual void Initialize(const rclcpp::Node::SharedPtr& node) = 0;
   virtual bool Validate(const std::vector<tmc_manipulation_types::TimedRobotTrajectory>& trajectories_in,
+                        const tmc_manipulation_types::RobotState& initial_state,
                         std::function<bool()> interrupt,
                         tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) = 0;
 };

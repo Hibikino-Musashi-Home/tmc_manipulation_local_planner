@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief Test of TrajectoryMixer
 
 #include <algorithm>
 #include <string>
@@ -81,15 +82,15 @@ TEST_F(TrajectoryMergerTest, MergeTrajectory) {
   trajectory.multi_dof_joint_trajectory.points[0].transforms.push_back(
       Eigen::Translation3d(0.0, 0.0, 0.0) * Eigen::AngleAxisd(0.0, Eigen::Vector3d::UnitZ()));
 
-  // Set the orbit
+  // Set the trajectory
   ASSERT_TRUE(trajectory_merger_->SetTrajectory(trajectory));
 
-  // Add orbit
+  // Add the trajectory
   trajectory_merger_->MergeTrajectory(trajectories_);
 
   EXPECT_EQ(trajectories_.size(), 2);
 
-  // There should be a trajectory including the joint name of JOINT0
+  // There should be a trajectory containing the joint name joint0
   auto pred = [joint_name](const TimedRobotTrajectory& trajectory) {
     return trajectory.joint_trajectory.joint_names[0] == joint_name;
   };
@@ -97,9 +98,9 @@ TEST_F(TrajectoryMergerTest, MergeTrajectory) {
   ASSERT_TRUE(it != trajectories_.end());
 }
 
-// Confirm that the output is the same as input when the orbit is not set
+// Confirm that when the trajectory is not set, the input and output are the same
 TEST_F(TrajectoryMergerTest, UnsetMergeTrajectory) {
-  // Add orbit
+  // Add the trajectory
   trajectory_merger_->MergeTrajectory(trajectories_);
 
   EXPECT_EQ(trajectories_.size(), 1);
@@ -108,15 +109,15 @@ TEST_F(TrajectoryMergerTest, UnsetMergeTrajectory) {
   ASSERT_EQ(trajectories_[0].joint_trajectory.joint_names[0], "joint1");
 }
 
-// Confirm that it becomes fraudulent when entering the sky trajectory
+// Confirm that it becomes invalid when an empty trajectory is input
 TEST_F(TrajectoryMergerTest, EmptyTrajectory) {
   TimedRobotTrajectory trajectory;
 
-  // Set the orbit
+  // Set the trajectory
   ASSERT_FALSE(trajectory_merger_->SetTrajectory(trajectory));
 }
 
-// Confirm that the orbit has been cleared
+// Confirm that the trajectory has been cleared
 TEST_F(TrajectoryMergerTest, ClearTrajectory) {
   // setup
   std::string joint_name = "joint0";
@@ -130,16 +131,16 @@ TEST_F(TrajectoryMergerTest, ClearTrajectory) {
   trajectory.multi_dof_joint_trajectory.points[0].transforms.push_back(
       Eigen::Translation3d(0.0, 0.0, 0.0) * Eigen::AngleAxisd(0.0, Eigen::Vector3d::UnitZ()));
 
-  // Set the orbit
+  // Set the trajectory
   ASSERT_TRUE(trajectory_merger_->SetTrajectory(trajectory));
 
-  // Clear the orbit
+  // Clear the trajectory
   trajectory_merger_->ClearTrajectory();
 
-  // Add orbit
+  // Add the trajectory
   trajectory_merger_->MergeTrajectory(trajectories_);
 
-  // If the set trajectory is cleared, it should not be added in MERGETRAJECTORY.
+  // If the set trajectory is cleared, it should not be added in MergeTrajectory
   EXPECT_EQ(trajectories_.size(), 1);
   ASSERT_EQ(trajectories_[0].joint_trajectory.joint_names[0], "joint1");
 }

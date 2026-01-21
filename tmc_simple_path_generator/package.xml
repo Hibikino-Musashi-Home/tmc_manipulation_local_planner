@@ -1,12 +1,11 @@
 <package format="3">
   <name>tmc_simple_path_generator</name>
   <version>2.0.0</version>
-  <description>The tmc_simple_path_generator package</description>
+  <description>tmc_simple_path_generator package</description>
 
   <maintainer email="xr-hsr-support@mail.toyota.co.jp">HSR Support</maintainer>
 
-  <author>Keisuke Takeshita</author>
-  <author>Satoru Onoda</author>
+  <author email="satoru_onoda_zc@mail.toyota.co.jp">Satoru Onoda</author>
 
   <license>BSD 3-clause Clear License</license>
 

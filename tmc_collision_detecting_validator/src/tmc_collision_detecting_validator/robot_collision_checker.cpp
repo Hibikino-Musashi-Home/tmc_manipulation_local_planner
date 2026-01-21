@@ -37,45 +37,11 @@ DAMAGE.
 #include <tmc_utils/qos.hpp>
 
 namespace {
-// WORLD_JOINT: Virtual joint between robot Odometry (ODOM) and robot orbital
+// world_joint: A virtual joint between the robot's odometry origin (odom) and the robot's trajectory
 const char* const kBaseJointName = "world_joint";
 }  // anonymous namespace
 
 namespace tmc_collision_detecting_validator {
-
-AttachedObject::AttachedObject(const rclcpp::Node::SharedPtr& node, const std::string& topic_name) {
-  attached_object_sub_ = node->create_subscription<moveit_msgs::msg::RobotState>(
-      topic_name, tmc_utils::BestEffortQoS(),
-      std::bind(&AttachedObject::AttachedObjectCallback, this, std::placeholders::_1));
-}
-
-void AttachedObject::UpdateCollisionDetector(
-    const tmc_robot_collision_detector::RobotCollisionDetector::Ptr& collision_detector) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  for (const auto& collision_object : attached_objects_) {
-    // If it is not included in the obstacle environment, add it
-    // Use the RobotCollisionDetector specification that external obstacles are included in a group called "Outer".
-    const auto object_names = collision_detector->GetObjectNameListByGroup("OUTER");
-    if (std::find(object_names.begin(), object_names.end(), collision_object.object.id) == object_names.end()) {
-      // If the holding is set, the position etc. will be overwritten, so you only need to add an object anyway.
-      tmc_manipulation_types::OuterObjectParameters params;
-      tmc_manipulation_types_bridge::CollisionObjectToOuterObjectParameters(collision_object.object, params);
-      collision_detector->CreateOuterObject(params);
-    }
-    // Setting of gratitude
-    Eigen::Affine3d link_to_object;
-    tf2::fromMsg(collision_object.object.pose, link_to_object);
-    collision_detector->HoldObject(collision_object.object.id, collision_object.link_name, link_to_object);
-  }
-}
-
-void AttachedObject::AttachedObjectCallback(const moveit_msgs::msg::RobotState::SharedPtr msg) {
-  std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
-  if (lock.try_lock()) {
-    attached_objects_ = msg->attached_collision_objects;
-  }
-}
-
 
 RobotCollisionChecker::RobotCollisionChecker(const rclcpp::Node::SharedPtr& node)
     : RobotCollisionChecker(node, nullptr) {}
@@ -97,7 +63,7 @@ RobotCollisionChecker::RobotCollisionChecker(const rclcpp::Node::SharedPtr& node
     RCLCPP_FATAL(node->get_logger(), "cannot get paramter robot_collision_pair");
     exit(EXIT_FAILURE);
   }
-  const auto collision_engine = tmc_utils::GetParameter<std::string>(node, "collision_engine", "ODE");
+  const auto collision_engine = tmc_utils::GetParameter<std::string>(node, "collision_engine", "fcl");
 
   const auto kinematics_type = tmc_utils::GetParameter<std::string>(node, "kinematics_type", "");
   if (kinematics_type.empty()) {
@@ -112,12 +78,7 @@ RobotCollisionChecker::RobotCollisionChecker(const rclcpp::Node::SharedPtr& node
         robot, robot_model, robot_collision_pair, collision_engine);
   }
 
-  const auto attached_object_topics = tmc_utils::GetParameter(
-      node, "attached_object_topics", std::vector<std::string>({"attached_object_publisher/attached_object"}));
-  for (const auto& topic_name : attached_object_topics) {
-    attached_objects_.emplace_back(std::make_shared<AttachedObject>(node, topic_name));
-  }
-
+  // TODO(Takeshita) プラグイン化したほうが設計としてはキレイだが，そこまで頑張る必要が現時点ではないので頑張らない
   const auto trajectory_points_collision_check_order_type = tmc_utils::GetParameter<std::string>(
       node, "trajectory_points_collision_check_order_type", "TrajectoryPointsCollisionCheckSkippingOrder");
   if (trajectory_points_collision_check_order_type == "TrajectoryPointsCollisionCheckBothEnds") {
@@ -126,103 +87,197 @@ RobotCollisionChecker::RobotCollisionChecker(const rclcpp::Node::SharedPtr& node
     collision_check_order_ = std::make_shared<TrajectoryPointsCollisionCheckSkippingOrder>();
   }
   collision_check_order_->Init(node);
-
-  environment_sub_ = node->create_subscription<moveit_msgs::msg::PlanningSceneWorld>(
-      "collision_environment_server/transformed_environment", tmc_utils::BestEffortQoS(),
-      std::bind(&RobotCollisionChecker::EnvironmentCallback, this, std::placeholders::_1));
-
-  disabled_object_pairs_sub_ = node->create_subscription<tmc_planning_msgs::msg::ObjectPairsList>(
-      "~/collisions_disabled_object_pairs", tmc_utils::ReliableVolatileQoS(),
-      std::bind(&RobotCollisionChecker::DisabledObjectPairsCallback, this, std::placeholders::_1));
 }
 
-bool RobotCollisionChecker::IsFeasible(
+RobotCollisionChecker::Result RobotCollisionChecker::IsFeasible(
     const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
-    std::function<bool()> interrupt) {
-  // trajectory check
-  // If the size of Name is 0, return False
-  if (trajectory.joint_trajectory.joint_names.size() == 0) {
-    return false;
+    std::function<bool()> interrupt,
+    std::string& error_message_out) {
+  // Returns false if the size of name is 0
+  if (trajectory.joint_trajectory.joint_names.size() == 0 &&
+      trajectory.multi_dof_joint_trajectory.joint_names.size() == 0) {
+    return Result::kInvalid;
   }
 
   uint32_t base_index = GetTargetJointIndex(trajectory.multi_dof_joint_trajectory.joint_names, kBaseJointName);
   if (base_index == trajectory.multi_dof_joint_trajectory.joint_names.size()) {
-    return false;
+    return Result::kInvalid;
   }
 
-  const auto indices = collision_check_order_->GenerateIndices(trajectory);
-  for (auto i : indices) {
-    if (interrupt()) {
-      return false;
+  const auto first_point_result = CheckCollisionImpl(trajectory, base_index, 0, error_message_out);
+  if (first_point_result == Result::kFeasible) {
+    const auto indices = collision_check_order_->GenerateIndices(trajectory);
+    for (auto i : indices) {
+      if (interrupt()) {
+        return Result::kInterrupted;
+      }
+      if (i == 0) {
+        continue;
+      }
+      const auto result = CheckCollisionImpl(trajectory, base_index, i, error_message_out);
+      if (result != Result::kFeasible) {
+        return result;
+      }
     }
-    // Return False if the size of name and point is different
-    if (trajectory.joint_trajectory.joint_names.size() != trajectory.joint_trajectory.points[i].positions.size()) {
-      return false;
-    }
-    // There is no base orbit to judge and returns False
-    if (base_index >= trajectory.multi_dof_joint_trajectory.points[i].transforms.size()) {
-      return false;
+    return Result::kFeasible;
+  } else {
+    if (trajectory.multi_dof_joint_trajectory.points.size() == 1) {
+      return first_point_result;
     }
 
-    // Set the orbit
+    std::vector<Collisions> collisions;
+    {
+      // Skip Update since it comes here right after the first point check
+      std::vector<std::pair<std::string, std::string>> contact_pair;
+      if (!collision_detector_->CheckCollision(false, contact_pair)) {
+        // It's strange to be here even though it should have interfered at the first point
+        error_message_out = "Inconsistent state: first point was in collision, but now not in collision";
+        return Result::kInvalid;
+      }
+      collisions = ComputeCollisions(contact_pair);
+  }
+
+    auto last_result = first_point_result;
+    for (auto i = 1u; i < trajectory.multi_dof_joint_trajectory.points.size(); ++i) {
+      if (interrupt()) {
+        return Result::kInterrupted;
+      }
+      const auto update_result = UpdateCollisionDetector(trajectory, base_index, i);
+      if (update_result != Result::kFeasible) {
+        return update_result;
+      }
+      std::vector<std::pair<std::string, std::string>> contact_pair;
+      if (collision_detector_->CheckCollision(false, contact_pair)) {
+        // It's not good if it collides after already exiting the collision
+        if (collisions.empty()) {
+          return Result::kCollision;
+        }
+
+        // It's okay if it's not a new collision and the collision becomes shallower
+        const auto new_collisions = ComputeCollisions(contact_pair);
+        for (const auto& new_collision : new_collisions) {
+          bool found = false;
+          for (const auto& prev_collision : collisions) {
+            if (new_collision.IsSameObjects(prev_collision)) {
+              if (new_collision.depth <= prev_collision.depth) {
+                found = true;
+              }
+              break;
+            }
+          }
+          if (!found) {
+            return Result::kCollision;
+          }
+        }
+        collisions = new_collisions;
+        last_result = Result::kCollision;
+      } else {
+        collisions.clear();
+        last_result = Result::kFeasible;
+      }
+    }
+    return last_result;
+  }
+}
+
+RobotCollisionChecker::Result RobotCollisionChecker::UpdateCollisionDetector(
+    const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
+    uint32_t base_index,
+    uint32_t point_index) {
+  // Returns false if the sizes of name and point are different
+  if ((point_index < trajectory.joint_trajectory.points.size()) &&
+      (trajectory.joint_trajectory.joint_names.size() !=
+           trajectory.joint_trajectory.points[point_index].positions.size())) {
+    return Result::kInvalid;
+  }
+  // Assume there is no base trajectory to judge and return false
+  if (base_index >= trajectory.multi_dof_joint_trajectory.points[point_index].transforms.size()) {
+    return Result::kInvalid;
+  }
+
+  // Setting the trajectory
+  if (point_index < trajectory.joint_trajectory.points.size()) {
     tmc_manipulation_types::JointState state =
         {trajectory.joint_trajectory.joint_names,
-         trajectory.joint_trajectory.points[i].positions,
+         trajectory.joint_trajectory.points[point_index].positions,
          Eigen::VectorXd(),
          Eigen::VectorXd()};
     collision_detector_->SetRobotNamedAngle(state);
-    collision_detector_->SetRobotTransform(trajectory.multi_dof_joint_trajectory.points[i].transforms[base_index]);
-
-    // Interference check
-    std::vector<std::pair<std::string, std::string>> contact_pair;
-    if (collision_detector_->CheckCollision(true, contact_pair)) {
-      if (verbose_ && verbose_->value()) {
-        std::stringstream stream;
-        stream << "Collision: " << contact_pair.front().first << " - " << contact_pair.front().second << std::endl;
-        for (auto j = 0; j < trajectory.joint_trajectory.joint_names.size(); ++j) {
-          stream << "  " << trajectory.joint_trajectory.joint_names[j] << ": "
-                 << trajectory.joint_trajectory.points[i].positions[j] << std::endl;
-        }
-        stream << "  base_pos_x: "
-               << trajectory.multi_dof_joint_trajectory.points[i].transforms[base_index].translation().x() << std::endl;
-        stream << "  base_pos_y: "
-               << trajectory.multi_dof_joint_trajectory.points[i].transforms[base_index].translation().y() << std::endl;
-        const auto euler_angles =
-            trajectory.multi_dof_joint_trajectory.points[i].transforms[base_index].linear().eulerAngles(0, 1, 2);
-        stream << "  base_ori_yaw: " << euler_angles[2] << std::endl;
-        RCLCPP_INFO_STREAM(logger_, stream.str());
-      }
-      return false;
-    }
   }
-  return true;
+  collision_detector_->SetRobotTransform(
+      trajectory.multi_dof_joint_trajectory.points[point_index].transforms[base_index]);
+  return Result::kFeasible;
 }
 
-void RobotCollisionChecker::UpdateEnvironmentObstacleObject() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  for (const auto& collision_object : environment_msg_.collision_objects) {
-    // There is no coordinate conversion, and coordinates have already been converted to the topic
+RobotCollisionChecker::Result RobotCollisionChecker::CheckCollisionImpl(
+    const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
+    uint32_t base_index,
+    uint32_t point_index,
+    std::string& error_message_out) {
+  const auto update_result = UpdateCollisionDetector(trajectory, base_index, point_index);
+  if (update_result != Result::kFeasible) {
+    return update_result;
+  }
+
+  // Interference check
+  std::vector<std::pair<std::string, std::string>> contact_pair;
+  if (collision_detector_->CheckCollision(true, contact_pair)) {
+    if (verbose_ && verbose_->value()) {
+      std::stringstream stream;
+      stream << "Collision: " << contact_pair.front().first << " - " << contact_pair.front().second << std::endl;
+      for (auto j = 0; j < trajectory.joint_trajectory.joint_names.size(); ++j) {
+        stream << "  " << trajectory.joint_trajectory.joint_names[j] << ": "
+                << trajectory.joint_trajectory.points[point_index].positions[j] << std::endl;
+      }
+      stream << "  base_pos_x: "
+             << trajectory.multi_dof_joint_trajectory.points[point_index].transforms[base_index].translation().x()
+             << std::endl;
+      stream << "  base_pos_y: "
+             << trajectory.multi_dof_joint_trajectory.points[point_index].transforms[base_index].translation().y()
+             << std::endl;
+      const auto euler_angles =
+          trajectory.multi_dof_joint_trajectory.points[point_index].transforms[base_index].linear().eulerAngles(0, 1, 2);  // NOLINT
+      stream << "  base_ori_yaw: " << euler_angles[2] << std::endl;
+      error_message_out = stream.str();
+    }
+    return Result::kCollision;
+  }
+  return Result::kFeasible;
+}
+
+
+void RobotCollisionChecker::CreateObstacleObjects(const moveit_msgs::msg::PlanningSceneWorld& environment) {
+  for (const auto& collision_object : environment.collision_objects) {
+    // No coordinate transformation is performed, assuming objects with transformed coordinates are coming in
     tmc_manipulation_types::OuterObjectParameters params;
     tmc_manipulation_types_bridge::CollisionObjectToOuterObjectParameters(collision_object, params);
     collision_detector_->CreateOuterObject(params);
   }
-  for (const auto& attached_objects : attached_objects_) {
-    attached_objects->UpdateCollisionDetector(collision_detector_);
-  }
-  for (const auto& pair : disabled_object_pairs_msg_.pairs) {
-    try {
-      collision_detector_->DisableCollisionCheckObjectToObject(pair.names[0], pair.names[1]);
-    } catch(const std::domain_error& error) {
-      RCLCPP_WARN_STREAM(logger_, "DisableCollisionCheck failure: " << pair.names[0] << " - " << pair.names[1]);
-      RCLCPP_DEBUG_STREAM(logger_, error.what());
-    }
-  }
 }
 
-void RobotCollisionChecker::CreateObstacleObject(
-  const tmc_manipulation_types::OuterObjectParametersSeq& obstacle_object_seq) {
-  for (auto object : obstacle_object_seq) {
-    collision_detector_->CreateOuterObject(object);
+void RobotCollisionChecker::AttachObjectToRobot(const moveit_msgs::msg::AttachedCollisionObject& collision_object) {
+  // If not included in the obstacle environment, add it
+  // Utilize the specification of RobotCollisionDetector that external obstacles are included in the group "OUTER"
+  const auto object_names = collision_detector_->GetObjectNameListByGroup("OUTER");
+  if (std::find(object_names.begin(), object_names.end(), collision_object.object.id) == object_names.end()) {
+    // When the grasping setting is performed, the position, etc., are overwritten, so just add the object
+    tmc_manipulation_types::OuterObjectParameters params;
+    tmc_manipulation_types_bridge::CollisionObjectToOuterObjectParameters(collision_object.object, params);
+    collision_detector_->CreateOuterObject(params);
+  }
+  // Grasping setting
+  Eigen::Affine3d link_to_object;
+  tf2::fromMsg(collision_object.object.pose, link_to_object);
+  collision_detector_->HoldObject(collision_object.object.id, collision_object.link_name, link_to_object);
+}
+
+void RobotCollisionChecker::DisableCollisionCheckObjectToObject(const std::string& object_name1,
+                                                                const std::string& object_name2) {
+  try {
+    collision_detector_->DisableCollisionCheckObjectToObject(object_name1, object_name2);
+  } catch(const std::domain_error& error) {
+    RCLCPP_WARN_STREAM(logger_, "DisableCollisionCheck failure: " <<object_name1 << " - " << object_name2);
+    RCLCPP_DEBUG_STREAM(logger_, error.what());
   }
 }
 
@@ -230,46 +285,80 @@ void RobotCollisionChecker::DestroyAllObstacleObject() {
   collision_detector_->DestroyAllOuterObject();
 }
 
-void RobotCollisionChecker::DumpEnvironment(const tmc_utils::MessageLogger::Ptr& logger) {
+void RobotCollisionChecker::UpdateJointState(const tmc_manipulation_types::JointState& joint_state) {
+  collision_detector_->SetRobotNamedAngle(joint_state);
+}
+
+std::vector<RobotCollisionChecker::Collisions> RobotCollisionChecker::ComputeCollisions(
+    const std::vector<std::pair<std::string, std::string>>& contact_pair) const {
+  // Since contact_pair is known, assume collision_detector is updated
+  std::vector<Collisions> collisions;
+  for (const auto& pair : contact_pair) {
+    Collisions collision;
+    collision.name_1 = pair.first;
+    collision.name_2 = pair.second;
+    collision_detector_->CheckCollisionPair(pair.first, pair.second, collision.depth);
+    collisions.push_back(collision);
+  }
+  return collisions;
+}
+
+
+void CollisionEnvironment::UpdateCollisionDetector(const RobotCollisionChecker::Ptr& collision_checker) const {
+  collision_checker->DestroyAllObstacleObject();
+  collision_checker->CreateObstacleObjects(environment);
+  for (const auto& collision_object : attached_objects) {
+    collision_checker->AttachObjectToRobot(collision_object);
+  }
+  for (const auto& pair : disabled_object_pairs.pairs) {
+    collision_checker->DisableCollisionCheckObjectToObject(pair.names[0], pair.names[1]);
+  }
+}
+
+void CollisionEnvironment::DumpEnvironment(const tmc_utils::MessageLogger::Ptr& logger) const {
   if (logger) {
-    {
-      moveit_msgs::msg::PlanningSceneWorld msg;
-      const auto params_seq = collision_detector_->GetAllOuterObjectParameters();
-      for (const auto& params : params_seq) {
-        moveit_msgs::msg::CollisionObject collision_object;
-        tmc_manipulation_types_bridge::OuterObjectParametersToCollisionObject(params, collision_object);
-        msg.collision_objects.emplace_back(collision_object);
-      }
-      logger->SaveMessage(".env", msg);
-    }
-    {
-      moveit_msgs::msg::RobotState msg;
-      const auto attached_object_names = collision_detector_->GetHeldObjectList();
-      for (const auto& name : attached_object_names) {
-        auto params = collision_detector_->GetObjectParameter(name);
-
-        moveit_msgs::msg::AttachedCollisionObject attached_object;
-        attached_object.link_name = params.parent_name;
-
-        params.origin_to_base = params.parent_to_base;
-        tmc_manipulation_types_bridge::OuterObjectParametersToCollisionObject(params, attached_object.object);
-
-        msg.attached_collision_objects.push_back(attached_object);
-      }
-      logger->SaveMessage(".attached", msg);
-    }
-    logger->SaveMessage(".disabled", disabled_object_pairs_msg_);
+    logger->SaveMessage(".env", environment);
+    moveit_msgs::msg::RobotState msg;
+    msg.attached_collision_objects = attached_objects;
+    logger->SaveMessage(".attached", msg);
+    logger->SaveMessage(".disabled", disabled_object_pairs);
   }
 }
 
-void RobotCollisionChecker::EnvironmentCallback(const moveit_msgs::msg::PlanningSceneWorld::SharedPtr msg) {
-  std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
-  if (lock.try_lock()) {
-    environment_msg_ = *msg;
+CollisionEnvironmentCache::CollisionEnvironmentCache(const rclcpp::Node::SharedPtr& node) {
+  environment_ = std::make_shared<tmc_utils::CachingSubscriber<moveit_msgs::msg::PlanningSceneWorld>>(
+      node, "collision_environment_server/transformed_environment", tmc_utils::BestEffortQoS());
+
+  const auto attached_object_topics = tmc_utils::GetParameter(
+      node, "attached_object_topics", std::vector<std::string>({"attached_object_publisher/attached_object"}));
+  for (const auto& topic_name : attached_object_topics) {
+    attached_objects_.emplace_back(std::make_shared<tmc_utils::CachingSubscriber<moveit_msgs::msg::RobotState>>(
+        node, topic_name, tmc_utils::BestEffortQoS()));
   }
+
+  disabled_object_pairs_ = std::make_shared<tmc_utils::CachingSubscriber<tmc_planning_msgs::msg::ObjectPairsList>>(
+      node, "~/collisions_disabled_object_pairs", tmc_utils::ReliableVolatileQoS());
 }
 
-void RobotCollisionChecker::DisabledObjectPairsCallback(const tmc_planning_msgs::msg::ObjectPairsList::SharedPtr msg) {
-  disabled_object_pairs_msg_ = *msg;
+CollisionEnvironment CollisionEnvironmentCache::GetCollisionEnvironment() const {
+  CollisionEnvironment env;
+  if (environment_->IsSubscribed()) {
+    env.environment = environment_->GetValue();
+  }
+
+  for (const auto& attached_object : attached_objects_) {
+    if (!attached_object->IsSubscribed()) {
+      continue;
+    }
+    const auto value = attached_object->GetValue();
+    env.attached_objects.insert(
+        env.attached_objects.end(), value.attached_collision_objects.begin(), value.attached_collision_objects.end());
+  }
+
+  if (disabled_object_pairs_->IsSubscribed()) {
+    env.disabled_object_pairs = disabled_object_pairs_->GetValue();
+  }
+  return env;
 }
+
 }  // namespace tmc_collision_detecting_validator

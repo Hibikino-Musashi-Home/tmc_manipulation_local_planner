@@ -38,7 +38,7 @@ namespace tmc_local_path_evaluator {
 
 class SoftJointConstraintScoreCalculation : public TrajectoryScoreCalculationBase {
  public:
-  /// @brief constructor
+  /// @brief Constructor
   SoftJointConstraintScoreCalculation() {}
 
   /// @brief Destructor

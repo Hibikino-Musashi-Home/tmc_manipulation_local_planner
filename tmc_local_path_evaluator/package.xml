@@ -1,11 +1,10 @@
 <package format="3">
   <name>tmc_local_path_evaluator</name>
   <version>2.0.0</version>
-  <description>Evaluate local trajectory</description>
+  <description>評価するローカルトラジェクトリ</description>
 
   <maintainer email="xr-hsr-support@mail.toyota.co.jp">HSR Support</maintainer>
 
-  <author>Keisuke Takeshita</author>
   <author>Satoru Onoda</author>
 
   <license>BSD 3-clause Clear License</license>

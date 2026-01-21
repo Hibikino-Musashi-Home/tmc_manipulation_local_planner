@@ -38,7 +38,7 @@ namespace tmc_local_path_evaluator {
 
 class TimeBaseScoreCalculation : public TrajectoryScoreCalculationBase {
  public:
-  /// @brief constructor
+  /// @brief Constructor
   TimeBaseScoreCalculation() {}
 
   /// @brief Destructor

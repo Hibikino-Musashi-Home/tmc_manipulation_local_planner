@@ -1,0 +1,11 @@
+self_see_links:
+  - name: arm_flex_link
+  - name: arm_lift_link
+  - name: arm_roll_link
+  - name: hand_palm_link
+  - name: hand_l_distal_link
+  - name: hand_l_spring_proximal_link
+  - name: hand_r_distal_link
+  - name: hand_r_spring_proximal_link
+  - name: wrist_flex_link
+  - name: wrist_roll_link

@@ -30,6 +30,8 @@ DAMAGE.
 #define TMC_COLLISION_DETECTING_VALIDATOR_COLLISION_DETECTING_VALIDATOR_HPP_
 
 #include <memory>
+#include <queue>
+#include <string>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -50,22 +52,60 @@ namespace tmc_collision_detecting_validator {
 class CollisionDetectingValidatorPlugin : public tmc_robot_local_planner::IValidator {
  public:
   CollisionDetectingValidatorPlugin();
-  virtual ~CollisionDetectingValidatorPlugin() = default;
+  virtual ~CollisionDetectingValidatorPlugin();
 
   void Initialize(const rclcpp::Node::SharedPtr& node) override;
 
   bool Validate(const std::vector<tmc_manipulation_types::TimedRobotTrajectory>& trajectories_in,
+                const tmc_manipulation_types::RobotState& initial_state,
                 std::function<bool()> interrupt,
                 tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) override;
 
  private:
   rclcpp::Node::SharedPtr node_;
 
-  // Interference check
-  std::shared_ptr<RobotCollisionChecker> robot_collision_checker_;
+  // Interference Check
+  std::vector<std::shared_ptr<RobotCollisionChecker>> robot_collision_checkers_;
+  std::shared_ptr<CollisionEnvironmentCache> collision_environment_cache_;
   std::vector<std::shared_ptr<MapCollisionChecker>> map_collision_checkers_;
 
-  // Interference check timeout
+  // Interference Check Thread
+  std::vector<std::thread> workers_;
+  void ValidateThread(const uint32_t checker_id);
+
+  // Data Group for Thread
+  std::vector<bool> do_update_environment_;
+
+  std::condition_variable condition_;
+  bool stop_thread_;
+
+  std::mutex feasible_min_index_mutex_;
+  std::optional<uint32_t> feasible_min_index_;
+
+  struct Request {
+    const tmc_manipulation_types::TimedRobotTrajectory& trajectory;
+    const CollisionEnvironment& environment;
+    uint32_t index;
+    Request(const tmc_manipulation_types::TimedRobotTrajectory& trajectory, const CollisionEnvironment& environment,
+            uint32_t index)
+        : trajectory(trajectory), environment(environment), index(index) {}
+  };
+  std::queue<Request> request_queue_;
+  std::mutex request_queue_mutex_;
+
+  struct Response {
+    const tmc_manipulation_types::TimedRobotTrajectory& trajectory;
+    bool is_feasible;
+    bool has_validated;
+    uint32_t index;
+    std::string error_message;
+    explicit Response(const Request& request)
+        : trajectory(request.trajectory), is_feasible(true), has_validated(false), index(request.index) {}
+  };
+  std::queue<Response> response_queue_;
+  std::mutex response_queue_mutex_;
+
+  // Timeout for Interference Check
   rclcpp::Clock::SharedPtr clock_;
   tmc_utils::DynamicParameter<double>::Ptr validate_timeout_;
   std::vector<rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr> set_param_handlers_;
@@ -75,9 +115,9 @@ class CollisionDetectingValidatorPlugin : public tmc_robot_local_planner::IValid
   tmc_utils::DynamicParameter<bool>::Ptr print_debug_info_;
   tmc_utils::MessageLogger::Ptr logger_;
 
-  void DumpCount(uint32_t count);
+  void DumpCount(const std::vector<uint32_t>& indices);
 
-  // MAP-> ODOM update function
+  // map->odom Update Function
   bool UpdateMapToRobotOrigin(const std::shared_ptr<MapCollisionChecker>& map_collision_checker);
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -85,7 +125,7 @@ class CollisionDetectingValidatorPlugin : public tmc_robot_local_planner::IValid
 
 class CollisionDetectingValidator : public rclcpp::Node {
  public:
-  /// @brief constructor
+  /// @brief Constructor
   CollisionDetectingValidator();
   explicit CollisionDetectingValidator(const rclcpp::NodeOptions& options);
 
@@ -101,7 +141,7 @@ class CollisionDetectingValidator : public rclcpp::Node {
   rclcpp_action::CancelResponse CancelCallback(const ServerGoalHandlePtr goal_handle);
   void FeedbackSetupCallback(ServerGoalHandlePtr goal_handle);
 
-  // Action server
+  // Action Server
   rclcpp_action::Server<tmc_planning_msgs::action::ValidateRobotTrajectories>::SharedPtr server_;
 
   CollisionDetectingValidatorPlugin impl_;

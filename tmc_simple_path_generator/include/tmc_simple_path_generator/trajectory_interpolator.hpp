@@ -48,14 +48,14 @@ class ITrajectoryInterpolator {
 
   virtual void Initialize(const rclcpp::Node::SharedPtr& node, const SamplingParameters::Ptr& params) = 0;
 
-  // Orbit an interpolation that satisfies the restraint in the shortest time
+  // Trajectory interpolation that satisfies constraints in the shortest time
   virtual bool Interpolate(
       const tmc_manipulation_types::RobotState& initial_state,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
       tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) = 0;
 
-  // Calonia interpolation to configure via points
+  // Trajectory interpolation that sets waypoints
   virtual bool Interpolate(
       const tmc_manipulation_types::RobotState& initial_state,
       const tmc_manipulation_types::RobotState& goal_state,
@@ -63,17 +63,19 @@ class ITrajectoryInterpolator {
       const tmc_manipulation_types::RobotState& random_middle_state,
       tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) = 0;
 
-  // Orbit an interpolation that satisfies the restraint in the shortest time
+  // Trajectory interpolation that satisfies constraints in the shortest time
   virtual bool Interpolate(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
       tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) = 0;
 
-  // Calonia interpolation to configure via points
+  // Trajectory interpolation that sets waypoints
   virtual bool Interpolate(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,

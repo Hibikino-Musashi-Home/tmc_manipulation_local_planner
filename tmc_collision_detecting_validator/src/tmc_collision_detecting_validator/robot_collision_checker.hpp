@@ -30,6 +30,7 @@ DAMAGE.
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <moveit_msgs/msg/planning_scene_world.hpp>
@@ -38,35 +39,18 @@ DAMAGE.
 
 #include <tmc_robot_collision_detector/robot_collision_detector.hpp>
 
-// It is necessary to include the one with Pinocchio mixed first
+// It is necessary to include the ones mixed with pinocchio first
 #include <rclcpp/rclcpp.hpp>  // NOLINT
 #include <tmc_manipulation_types/manipulation_types.hpp>
 #include <tmc_manipulation_types_bridge/manipulation_msg_convertor.hpp>
 #include <tmc_planning_msgs/msg/object_pairs_list.hpp>
+#include <tmc_utils/caching_subscriber.hpp>
 #include <tmc_utils/msg_io.hpp>
 #include <tmc_utils/parameters.hpp>
 
 #include "utils.hpp"
 
-using tmc_robot_collision_detector::RobotCollisionDetector;
-
 namespace tmc_collision_detecting_validator {
-
-class AttachedObject {
- public:
-  AttachedObject(const rclcpp::Node::SharedPtr& node, const std::string& topic_name);
-
-  /// @brief Updating the attached object information of collision_detector
-  /// @param collision_detector Collision detector
-  void UpdateCollisionDetector(const tmc_robot_collision_detector::RobotCollisionDetector::Ptr& collision_detector);
-
- private:
-  void AttachedObjectCallback(const moveit_msgs::msg::RobotState::SharedPtr msg);
-  rclcpp::Subscription<moveit_msgs::msg::RobotState>::SharedPtr attached_object_sub_;
-
-  std::vector<moveit_msgs::msg::AttachedCollisionObject> attached_objects_;
-  std::mutex mutex_;
-};
 
 class RobotCollisionChecker {
  public:
@@ -75,21 +59,41 @@ class RobotCollisionChecker {
   explicit RobotCollisionChecker(const rclcpp::Node::SharedPtr& node);
   RobotCollisionChecker(const rclcpp::Node::SharedPtr& node, const tmc_utils::DynamicParameter<bool>::Ptr& verbose);
 
+  enum class Result {
+    kFeasible = 0,
+    kCollision = 1,
+    kInterrupted = 2,
+    kInvalid = 3,
+  };
+
   /// @brief Feasibility Check Stop immediately after checking collision
-  bool IsFeasible(const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
-                  std::function<bool()> interrupt);
+  /// @param trajectory Timed Trajectory
+  /// @param interrupt Interruption function
+  /// @param error_message_out Error message
+  /// @return Result Validation result
+  Result IsFeasible(const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
+                    std::function<bool()> interrupt,
+                    std::string& error_message_out);
 
-  /// @brief Add obstacle information from the collision environment topic
-  void UpdateEnvironmentObstacleObject();
+  /// @brief Create obstacle objects from the environment
+  /// @param environment Collision environment
+  void CreateObstacleObjects(const moveit_msgs::msg::PlanningSceneWorld& environment);
 
-  /// @brief Set Obstacle objects to robot outside
-  void CreateObstacleObject(const tmc_manipulation_types::OuterObjectParametersSeq& obstacle_object_seq);
+  /// @brief Attach object to robot
+  /// @param collision_object Attached collision object
+  void AttachObjectToRobot(const moveit_msgs::msg::AttachedCollisionObject& collision_object);
+
+  /// @brief Disable collision check between object and object
+  /// @param object_name1 Object name 1
+  /// @param object_name2 Object name 2
+  void DisableCollisionCheckObjectToObject(const std::string& object_name1, const std::string& object_name2);
 
   /// @brief Clear robot outside obstacle objects
   void DestroyAllObstacleObject();
 
-  /// @brief Dump collision objects as moveit_msgs::msg::PlanningSceneWorld
-  void DumpEnvironment(const tmc_utils::MessageLogger::Ptr& logger);
+  /// @brief Update joint state
+  /// @param joint_state Joint state
+  void UpdateJointState(const tmc_manipulation_types::JointState& joint_state);
 
  private:
   pluginlib::ClassLoader<tmc_robot_kinematics_model::IRobotKinematicsModel> fk_loader_;
@@ -99,19 +103,58 @@ class RobotCollisionChecker {
   rclcpp::Logger logger_;
   tmc_utils::DynamicParameter<bool>::Ptr verbose_;
 
-  void EnvironmentCallback(const moveit_msgs::msg::PlanningSceneWorld::SharedPtr msg);
-  rclcpp::Subscription<moveit_msgs::msg::PlanningSceneWorld>::SharedPtr environment_sub_;
-  moveit_msgs::msg::PlanningSceneWorld environment_msg_;
-  std::mutex mutex_;
-
-  void DisabledObjectPairsCallback(const tmc_planning_msgs::msg::ObjectPairsList::SharedPtr msg);
-  rclcpp::Subscription<tmc_planning_msgs::msg::ObjectPairsList>::SharedPtr disabled_object_pairs_sub_;
-  tmc_planning_msgs::msg::ObjectPairsList disabled_object_pairs_msg_;
-
-  std::vector<std::shared_ptr<AttachedObject>> attached_objects_;
-
   std::shared_ptr<ITrajectoryPointsCollisionCheckOrder> collision_check_order_;
+
+  Result UpdateCollisionDetector(const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
+                                 uint32_t base_index,
+                                 uint32_t point_index);
+  Result CheckCollisionImpl(const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
+                            uint32_t base_index,
+                            uint32_t point_index,
+                            std::string& error_message_out);
+
+  /// Collision depth information
+  struct Collisions {
+    std::string name_1;
+    std::string name_2;
+    double depth;
+
+    bool IsSameObjects(const Collisions& other) const {
+      return ((name_1 == other.name_1) && (name_2 == other.name_2)) ||
+          ((name_1 == other.name_2) && (name_2 == other.name_1));
+    }
+  };
+  std::vector<Collisions> ComputeCollisions(const std::vector<std::pair<std::string, std::string>>& contact_pair) const;
 };
+
+
+struct CollisionEnvironment {
+  moveit_msgs::msg::PlanningSceneWorld environment;
+  std::vector<moveit_msgs::msg::AttachedCollisionObject> attached_objects;
+  tmc_planning_msgs::msg::ObjectPairsList disabled_object_pairs;
+
+  void UpdateCollisionDetector(const RobotCollisionChecker::Ptr& collision_checker) const;
+
+  /// @brief Dump collision objects
+  /// @param logger logger pointer
+  void DumpEnvironment(const tmc_utils::MessageLogger::Ptr& logger) const;
+};
+
+
+class CollisionEnvironmentCache {
+ public:
+  explicit CollisionEnvironmentCache(const rclcpp::Node::SharedPtr& node);
+
+  /// @brief Get the latest collision environment
+  /// @return CollisionEnvironment
+  CollisionEnvironment GetCollisionEnvironment() const;
+
+ private:
+  tmc_utils::CachingSubscriber<moveit_msgs::msg::PlanningSceneWorld>::Ptr environment_;
+  std::vector<tmc_utils::CachingSubscriber<moveit_msgs::msg::RobotState>::Ptr> attached_objects_;
+  tmc_utils::CachingSubscriber<tmc_planning_msgs::msg::ObjectPairsList>::Ptr disabled_object_pairs_;
+};
+
 
 }  // namespace tmc_collision_detecting_validator
 #endif  // TMC_COLLISION_DETECTING_VALIDATOR_ROBOT_COLLISION_CHECKER_HPP_

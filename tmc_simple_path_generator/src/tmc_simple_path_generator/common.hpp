@@ -27,6 +27,7 @@ DAMAGE.
 */
 /// @brief Common functions
 
+#include <random>
 #include <string>
 #include <vector>
 
@@ -37,7 +38,14 @@ DAMAGE.
 
 namespace tmc_simple_path_generator {
 
+/// TODO: tmc_manipulation_typesのutilsに移行予定
 /// @brief Overwrite robot_state_in_out
+/// @param robot_state_in_out Robot state for overwriting
+/// @param joint_names List of joints
+/// @param base_names List of base axes
+/// @param joint_positions List of joint positions
+/// @param base_poses List of base axis positions
+/// @return Function success determination
 bool OverwriteRobotState(
     tmc_manipulation_types::RobotState& robot_state_in_out,
     const tmc_manipulation_types::NameSeq& joint_names,
@@ -45,7 +53,14 @@ bool OverwriteRobotState(
     const Eigen::VectorXd& joint_positions,
     const tmc_manipulation_types::PoseSeq& base_poses);
 
+/// TODO: tmc_manipulation_typesのutilsに移行予定
 /// @brief Extract information from robot_state
+/// @param robot_state Robot state
+/// @param joint_names List of joints
+/// @param base_names List of base axes
+/// @param joint_positions_out Output list of joint positions
+/// @param base_poses_out Output list of base axis positions
+/// @return Function success determination
 bool ExtractFromRobotState(
     const tmc_manipulation_types::RobotState& robot_state,
     const tmc_manipulation_types::NameSeq& joint_names,
@@ -53,7 +68,16 @@ bool ExtractFromRobotState(
     Eigen::VectorXd& joint_positions_out,
     tmc_manipulation_types::PoseSeq& base_poses_out);
 
-/// @brief Add a uniform random number of Delta to robot_state_in
+/// TODO: generatorのテンプレート化
+/// @brief Add uniform random numbers with width delta to robot_state
+/// @param joint_state_in Joint state
+/// @param joint_names List of joint names
+/// @param base_names List of base axes
+/// @param joint_limit_upper Upper limit of joints
+/// @param joint_limit_lower Lower limit of joints
+/// @param delta Width of random numbers
+/// @param robot_state_out Output of robot state
+/// @return Function success determination
 bool AddRandomState(
     const tmc_manipulation_types::RobotState& robot_state_in,
     const tmc_manipulation_types::NameSeq& joint_names,
@@ -61,33 +85,40 @@ bool AddRandomState(
     const std::vector<double>& joint_limit_upper,
     const std::vector<double>& joint_limit_lower,
     double delta,
+    std::mt19937& generator,
     tmc_manipulation_types::RobotState& robot_state_out);
 
-/// @brief Replace robot_state_in with a random joint posture, sampling uniformly in the upper and lower limits
+/// @brief Replace robot_state with random joint posture, uniform sampling within upper and lower limits
+/// @param robot_state_in Robot state
+/// @param joint_names List of joint names
+/// @param joint_limit_upper Upper limit of joints
+/// @param joint_limit_lower Lower limit of joints
+/// @param robot_state_out Output of robot state
+/// @return Function success determination
 bool ReplaceWithUniformRandomJointPositions(
     const tmc_manipulation_types::RobotState& robot_state_in,
     const tmc_manipulation_types::NameSeq& joint_names,
     const std::vector<double>& joint_limit_upper,
     const std::vector<double>& joint_limit_lower,
+    std::mt19937& generator,
     tmc_manipulation_types::RobotState& robot_state_out);
 
-/// @brief An uniform sampling that adds a random offset to the bogie position attitude
+/// @brief Add random offset to base position posture, uniform sampling
+/// @param robot_state_in Robot state
+/// @param base_names List of base axes
+/// @param position_range Width of random numbers for base position
+/// @param rotation_range Width of random numbers for base rotation
+/// @param robot_state_out Output of robot state
+/// @return Function success determination
 bool AddUniformRandomBasePoseOffset(
     const tmc_manipulation_types::RobotState& robot_state_in,
     const tmc_manipulation_types::NameSeq& base_names,
     double position_range,
     double rotation_range,
+    std::mt19937& generator,
     tmc_manipulation_types::RobotState& robot_state_out);
 
-// Remove joints that are not used
-void RemoveIgnored(const std::vector<std::string>& joint_names, const std::vector<std::string>& ignore_joints,
-                   std::vector<std::string>& result_out, std::vector<uint32_t>& remaining_indices_out);
-
-// Remove joints that are not used
-void RemoveIgnored(const std::vector<std::string>& joint_names, const std::vector<std::string>& ignore_joints,
-                   std::vector<std::string>& result_out);
-
-// Extract only the specified index value
+// Extract only the value of the specified index
 template<typename TYPE>
 TYPE ExtractValues(const TYPE& values, const std::vector<uint32_t>& indices) {
   TYPE output;
@@ -98,29 +129,30 @@ TYPE ExtractValues(const TYPE& values, const std::vector<uint32_t>& indices) {
   return output;
 }
 
-// Calculation of weighted distance
+// Calculate weighted distance
 double CalculateLength(const Eigen::VectorXd& prev,
                        const Eigen::VectorXd& next,
                        const Eigen::VectorXd& weights);
 
-// Calculation of weighted joint distance
+// Calculate weighted joint distance
 double CalculateJointLength(const tmc_manipulation_types::RobotState& prev,
                             const tmc_manipulation_types::RobotState& next,
                             const Eigen::VectorXd& weights);
 
-// Calculation of heavy bogie distance
+// Calculate weighted base distance
 double CalculateBaseLength(const Eigen::Affine3d& prev,
                            const Eigen::Affine3d& next,
                            const Eigen::VectorXd& weights);
 
-// Connect to Trajectory by connecting the Robotstate group
-void Convert(const tmc_manipulation_types::RobotState& initial_state,
+// Connect RobotState group and convert to trajectory
+bool Convert(const tmc_manipulation_types::RobotState& initial_state,
              const std::vector<tmc_manipulation_types::RobotState>& way_points,
+             const std::vector<std::string>& joint_names,
              const Eigen::VectorXd& joint_weights,
              const Eigen::VectorXd& base_weights,
              tmc_manipulation_types::TimedRobotTrajectory& trajectory_out);
 
-// Select one from multiple restraint conditions, C ++ 17 STD :: Sample is also difficult to use.
+// Select one from multiple constraints, C++17's std::sample is also somewhat difficult to use
 template<typename ConstraintPtr, typename Generator>
 ConstraintPtr SampleConstraints(const std::vector<ConstraintPtr>& constraints,
                                 Generator&& generator) {

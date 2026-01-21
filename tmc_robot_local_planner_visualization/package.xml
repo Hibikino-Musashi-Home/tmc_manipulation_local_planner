@@ -1,11 +1,9 @@
 <package format="3">
   <name>tmc_robot_local_planner_visualization</name>
   <version>2.0.0</version>
-  <description> Visualization tools for robot local planner </description>
+  <description>Visualization tools for robot local planner</description>
   <maintainer email="xr-hsr-support@mail.toyota.co.jp">HSR Support</maintainer>
   <license>BSD 3-clause Clear License</license>
-
-  <author>Keisuke Takeshita</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

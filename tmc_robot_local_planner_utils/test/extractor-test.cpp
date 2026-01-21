@@ -25,7 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
-/// @brief Extractor test
+/// @brief Test of Extractor
 
 #include <vector>
 
@@ -82,7 +82,7 @@ TEST_F(ExtractorTest, ExtractMultiDOFJointTrajectoryWithoutPositions) {
   }
   auto result = ExtractMultiDOFJointTrajectory(
     trajectory_.multi_dof_joint_trajectory, base_names_);
-  // I omit the detailed numbers because I do it in the above test
+  // Detailed numerical checks are done in the above test, so omitted here
   ASSERT_EQ(trajectory_.multi_dof_joint_trajectory.points.size(),
             result.points.size());
   for (const auto& point : result.points) {
@@ -134,7 +134,7 @@ TEST_F(ExtractorTest, ExtractTrajectoryAtTime) {
   };
   rclcpp::Time target_time(102, 500000000);
   tmc_manipulation_types::TimedRobotTrajectory trajectory_out;
-  // Normal test
+  // Normal case test
   ASSERT_TRUE(ExtractTrajectoryAtTime(trajectory_, target_time, trajectory_out));
   int32_t diff_points = trajectory_.joint_trajectory.points.size() - trajectory_out.joint_trajectory.points.size();
   EXPECT_EQ(diff_points, 2);

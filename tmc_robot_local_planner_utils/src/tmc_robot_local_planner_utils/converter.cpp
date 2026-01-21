@@ -103,25 +103,25 @@ void BatchConvertConstMsgConstToWithLoop(const Fn& fn,
 
 namespace tmc_robot_local_planner_utils {
 
-// Extract x, y, yaw from the conversion matrix
+// Extract x, y, yaw from the transformation matrix
 Vector3d Get2DPose(const Affine3d& transform) {
   return Eigen::Vector3d(transform.translation().x(),
                          transform.translation().y(),
                          transform.rotation().eulerAngles(0, 1, 2).z());
 }
 
-// The input outputs a conversion line as x, y, yaw
+// Output the transformation matrix with input as x, y, yaw
 Affine3d GetTransform(const Vector3d& pose2d) {
   return Eigen::Translation3d(pose2d.x(), pose2d.y(), 0.0) *
       Eigen::AngleAxisd(pose2d.z(), Eigen::Vector3d::UnitZ());
 }
 
-// Return Linear.x Linear.y Angular.z from Twist
+// Return linear.x linear.y angular.z from Twist
 Vector3d Get2DTwist(const tmc_manipulation_types::Twist& twist) {
   return Vector3d(twist[0], twist[1], twist[5]);
 }
 
-// Outputs twist as x, y, yaw
+// Output Twist with input as x, y, yaw
 tmc_manipulation_types::Twist GetTwist(const Vector3d& twist2d) {
   tmc_manipulation_types::Twist twist;
   twist << twist2d[0], twist2d[1], 0.0, 0.0, 0.0, twist2d[2];
@@ -157,6 +157,11 @@ bool TransformConstraints(
                               timeout, buffer, msg.soft_path_joint_constraints)) {
     return false;
   }
+  if (!msg.initial_motion_linear_constraint.reference.header.frame_id.empty() &&
+      !TryTransform(msg.initial_motion_linear_constraint.reference, origin_frame,
+                    timeout, buffer, msg.initial_motion_linear_constraint.reference)) {
+    return false;
+  }
   return true;
 }
 
@@ -179,6 +184,8 @@ void ConvertConstraints(const tmc_planning_msgs::msg::Constraints& msg,
                                       constraints.hard_path_link_constraints);
   ConvertLinearConstraintMsgToLinearConstraint(msg.goal_relative_linear_constraint,
                                                constraints.goal_relative_linear_constraint);
+  ConvertLinearConstraintMsgToLinearConstraint(msg.initial_motion_linear_constraint,
+                                               constraints.initial_motion_linear_constraint);
   BatchConvertConstMsgConstToWithLoop(ConvertJointConstraintMsgToJointConstraint,
                                       msg.soft_path_joint_constraints,
                                       constraints.soft_path_joint_constraints);
@@ -246,7 +253,17 @@ void ConvertLinearConstraintMsgToLinearConstraint(
     const tmc_planning_msgs::msg::LinearConstraint& msg,
     tmc_robot_local_planner::LinearConstraint& constraint_out) {
   constraint_out.end_frame_id = msg.end_frame_id;
-  // You can make a zero judgment here, but the conversion function is determined by the policy to focus on conversion, and the use side.
+  // Zero determination can be done here, but the conversion function is dedicated to conversion, determination is done by the user
+  tf2::fromMsg(msg.axis, constraint_out.axis);
+  constraint_out.distance = msg.distance;
+}
+
+void ConvertLinearConstraintMsgToLinearConstraint(
+    const tmc_planning_msgs::msg::LinearConstraintWithPose& msg,
+    tmc_robot_local_planner::LinearConstraintWithPose& constraint_out) {
+  constraint_out.end_frame_id = msg.end_frame_id;
+  // Assumes it has been transformed
+  tf2::fromMsg(msg.reference.pose, constraint_out.reference);
   tf2::fromMsg(msg.axis, constraint_out.axis);
   constraint_out.distance = msg.distance;
 }

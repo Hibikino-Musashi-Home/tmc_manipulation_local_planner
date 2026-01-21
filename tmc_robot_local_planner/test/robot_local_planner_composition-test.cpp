@@ -43,7 +43,7 @@ class MockGenerator : public tmc_robot_local_planner::IGenerator {
   MOCK_METHOD6(Generate, bool(const tmc_robot_local_planner::Constraints&,
                               const tmc_manipulation_types::RobotState&,
                               double,
-                              const std::vector<std::string>&,
+                              bool,
                               std::function<bool()>,
                               std::vector<tmc_manipulation_types::TimedRobotTrajectory>&));
 };
@@ -60,7 +60,8 @@ class MockEvaluator : public tmc_robot_local_planner::IEvaluator {
 class MockValidator : public tmc_robot_local_planner::IValidator {
  public:
   MOCK_METHOD1(Initialize, void(const rclcpp::Node::SharedPtr&));
-  MOCK_METHOD3(Validate, bool(const std::vector<tmc_manipulation_types::TimedRobotTrajectory>&,
+  MOCK_METHOD4(Validate, bool(const std::vector<tmc_manipulation_types::TimedRobotTrajectory>&,
+                              const tmc_manipulation_types::RobotState&,
                               std::function<bool()>,
                               tmc_manipulation_types::TimedRobotTrajectory&));
 };
@@ -150,14 +151,14 @@ void RobotLocalPlannerCompositionTest::SetUp() {
       server_node_, "test_node/generated_trajectories", rclcpp::SensorDataQoS());
 }
 
-// The four actions are called in order and PlanPath becomes true
+// The four actions are called in sequence, and PlanPath becomes true
 TEST_F(RobotLocalPlannerCompositionTest, PlanPath) {
   ::testing::InSequence mock_sequence;
 
   Constraints gen_input_constraints;
   tmc_manipulation_types::RobotState gen_input_initial_state;
   std::vector<tmc_manipulation_types::TimedRobotTrajectory> gen_output_trajectories(2);
-  EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, 0.1, std::vector<std::string>({"ignored"}),
+  EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, 0.1, false,
                               ::testing::_, ::testing::_))
       .Times(1)
       .WillOnce(::testing::DoAll(::testing::SaveArg<0>(&gen_input_constraints),
@@ -176,12 +177,14 @@ TEST_F(RobotLocalPlannerCompositionTest, PlanPath) {
                                  ::testing::Return(true)));
 
   std::vector<tmc_manipulation_types::TimedRobotTrajectory> val_input_trajectories;
+  tmc_manipulation_types::RobotState val_input_initial_state;
   tmc_manipulation_types::TimedRobotTrajectory val_output_trajectory;
   val_output_trajectory.joint_trajectory.joint_names.resize(4);
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_))
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1)
       .WillOnce(::testing::DoAll(::testing::SaveArg<0>(&val_input_trajectories),
-                                 ::testing::SetArgReferee<2>(val_output_trajectory),
+                                 ::testing::SaveArg<1>(&val_input_initial_state),
+                                 ::testing::SetArgReferee<3>(val_output_trajectory),
                                  ::testing::Return(true)));
 
   tmc_manipulation_types::TimedRobotTrajectory opt_input_trajectory;
@@ -194,7 +197,7 @@ TEST_F(RobotLocalPlannerCompositionTest, PlanPath) {
                                  ::testing::SetArgReferee<2>(opt_output_trajectory),
                                  ::testing::Return(true)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, false);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kSuccess, planner_->last_error_code());
 
@@ -205,6 +208,7 @@ TEST_F(RobotLocalPlannerCompositionTest, PlanPath) {
   EXPECT_EQ(eval_input_trajectories.size(), 2);
 
   EXPECT_EQ(val_input_trajectories.size(), 3);
+  EXPECT_EQ(val_input_initial_state.joint_state.name, std::vector<std::string>({"test_joint"}));
 
   EXPECT_EQ(opt_input_trajectory.joint_trajectory.joint_names.size(), 4);
 
@@ -215,7 +219,7 @@ TEST_F(RobotLocalPlannerCompositionTest, PlanPath) {
   EXPECT_EQ(trajectory_candidates_cache_->GetValue().trajectory.size(), 3);
 }
 
-// Four actions are called in order and PlanPath becomes true, Gen-> Opt-> EVAL-> Val cases
+// The four actions are called in sequence, and PlanPath becomes true, in the case of gen->opt->eval->val
 TEST_F(RobotLocalPlannerCompositionTest, OptimizeSecond) {
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
   trajectory.joint_trajectory.joint_names.resize(1);
@@ -231,7 +235,7 @@ TEST_F(RobotLocalPlannerCompositionTest, OptimizeSecond) {
   Constraints gen_input_constraints;
   tmc_manipulation_types::RobotState gen_input_initial_state;
   std::vector<tmc_manipulation_types::TimedRobotTrajectory> gen_output_trajectories(2);
-  EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, 0.1, std::vector<std::string>({"ignored"}),
+  EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, 0.1, true,
                               ::testing::_, ::testing::_))
       .Times(1)
       .WillOnce(::testing::DoAll(::testing::SaveArg<0>(&gen_input_constraints),
@@ -259,15 +263,17 @@ TEST_F(RobotLocalPlannerCompositionTest, OptimizeSecond) {
                                  ::testing::Return(true)));
 
   std::vector<tmc_manipulation_types::TimedRobotTrajectory> val_input_trajectories;
+  tmc_manipulation_types::RobotState val_input_initial_state;
   tmc_manipulation_types::TimedRobotTrajectory val_output_trajectory;
   val_output_trajectory.joint_trajectory.joint_names.resize(5);
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_))
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1)
       .WillOnce(::testing::DoAll(::testing::SaveArg<0>(&val_input_trajectories),
-                                 ::testing::SetArgReferee<2>(val_output_trajectory),
+                                 ::testing::SaveArg<1>(&val_input_initial_state),
+                                 ::testing::SetArgReferee<3>(val_output_trajectory),
                                  ::testing::Return(true)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, true);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kSuccess, planner_->last_error_code());
 
@@ -280,11 +286,12 @@ TEST_F(RobotLocalPlannerCompositionTest, OptimizeSecond) {
   EXPECT_EQ(eval_input_trajectories.size(), 4);
 
   EXPECT_EQ(val_input_trajectories.size(), 4);
+  EXPECT_EQ(val_input_initial_state.joint_state.name, std::vector<std::string>({"test_joint"}));
 
   EXPECT_EQ(trajectory_future.get().joint_trajectory.joint_names.size(), 5);
 }
 
-// The trajectory is merged with TrajectoryMerger and it is going to EVALUATOR
+// The trajectory is merged in TrajectoryMerger and passed to the evaluator
 TEST_F(RobotLocalPlannerCompositionTest, PlanPathWithTrajectoryMerger) {
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
   trajectory.joint_trajectory.joint_names.resize(1);
@@ -303,20 +310,20 @@ TEST_F(RobotLocalPlannerCompositionTest, PlanPathWithTrajectoryMerger) {
       .WillOnce(::testing::DoAll(::testing::SaveArg<1>(&eval_input_trajectories),
                                  ::testing::Return(true)));
 
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_))
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*opt_, Optimize(::testing::An<const tmc_manipulation_types::TimedRobotTrajectory&>(),
                               ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
 
-  // The set trajectory should be merged and the number of tracks should be 3
+  // The set trajectory should be merged, resulting in 3 trajectories
   EXPECT_EQ(eval_input_trajectories.size(), 3);
 }
 
-// PlanPath turns without giving TrajectoryMerger
+// PlanPath runs even without providing TrajectoryMerger
 TEST_F(RobotLocalPlannerCompositionTest, PlanPathWithoutTrajectoryMerger) {
   const auto test_node = rclcpp::Node::make_shared("test_node");
   planner_ = std::make_shared<RobotLocalPlannerComposition>(test_node, plugins_);
@@ -325,37 +332,37 @@ TEST_F(RobotLocalPlannerCompositionTest, PlanPathWithoutTrajectoryMerger) {
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_))
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*opt_, Optimize(::testing::An<const tmc_manipulation_types::TimedRobotTrajectory&>(),
                               ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
 }
 
-// Failed in the empty Constraints
+// Fails with empty constraints
 TEST_F(RobotLocalPlannerCompositionTest, EmptyConstraints) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(0);
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_)).Times(0);
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_)).Times(0);
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_)).Times(0);
   EXPECT_CALL(*opt_, Optimize(::testing::An<const tmc_manipulation_types::TimedRobotTrajectory&>(),
                               ::testing::_, ::testing::_)).Times(0);
 
-  auto trajectory_future = planner_->PlanPath(Constraints(), initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(Constraints(), initial_state_, 0.1);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kConstraintsEmpty, planner_->last_error_code());
   EXPECT_TRUE(trajectory_future.get().joint_trajectory.joint_names.empty());
 }
 
-// Fail in Generator
+// Fails in generator
 TEST_F(RobotLocalPlannerCompositionTest, AbortedByGenerator) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(false));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_)).Times(0);
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_)).Times(0);
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_)).Times(0);
 
   tmc_manipulation_types::TimedRobotTrajectory opt_output_trajectory;
   opt_output_trajectory.joint_trajectory.joint_names.resize(5);
@@ -364,19 +371,19 @@ TEST_F(RobotLocalPlannerCompositionTest, AbortedByGenerator) {
       .WillRepeatedly(::testing::DoAll(::testing::SetArgReferee<2>(opt_output_trajectory),
                                        ::testing::Return(false)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kGenerationFailure, planner_->last_error_code());
   EXPECT_TRUE(trajectory_future.get().joint_trajectory.joint_names.empty());
 }
 
-// Failed in EVALUATOR
+// Fails in evaluator
 TEST_F(RobotLocalPlannerCompositionTest, AbortedByEvaluator) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(false));
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_)).Times(0);
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_)).Times(0);
 
   tmc_manipulation_types::TimedRobotTrajectory opt_output_trajectory;
   opt_output_trajectory.joint_trajectory.joint_names.resize(5);
@@ -385,19 +392,19 @@ TEST_F(RobotLocalPlannerCompositionTest, AbortedByEvaluator) {
       .WillRepeatedly(::testing::DoAll(::testing::SetArgReferee<2>(opt_output_trajectory),
                                        ::testing::Return(false)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kEvaluationFailure, planner_->last_error_code());
   EXPECT_TRUE(trajectory_future.get().joint_trajectory.joint_names.empty());
 }
 
-// Fail in Validator
+// Fails in validator
 TEST_F(RobotLocalPlannerCompositionTest, AbortedByValidator) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_))
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(false));
 
   tmc_manipulation_types::TimedRobotTrajectory opt_output_trajectory;
@@ -407,19 +414,19 @@ TEST_F(RobotLocalPlannerCompositionTest, AbortedByValidator) {
       .WillRepeatedly(::testing::DoAll(::testing::SetArgReferee<2>(opt_output_trajectory),
                                        ::testing::Return(true)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kValidationFailure, planner_->last_error_code());
   EXPECT_TRUE(trajectory_future.get().joint_trajectory.joint_names.empty());
 }
 
-// Failed with Optimizer
+// Fails in optimizer
 TEST_F(RobotLocalPlannerCompositionTest, AbortedByOptimizer) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_))
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
 
   tmc_manipulation_types::TimedRobotTrajectory opt_output_trajectory;
@@ -429,18 +436,18 @@ TEST_F(RobotLocalPlannerCompositionTest, AbortedByOptimizer) {
       .WillRepeatedly(::testing::DoAll(::testing::SetArgReferee<2>(opt_output_trajectory),
                                        ::testing::Return(false)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
   EXPECT_EQ(trajectory_future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kOptimizationFailure, planner_->last_error_code());
   EXPECT_TRUE(trajectory_future.get().joint_trajectory.joint_names.empty());
 }
 
-// Generate interrupt while executing
+// Interruption during generate execution
 TEST_F(RobotLocalPlannerCompositionTest, InterruptGenerator) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Invoke(Sleep6));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_)).Times(0);
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_)).Times(0);
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_)).Times(0);
 
   tmc_manipulation_types::TimedRobotTrajectory opt_output_trajectory;
   opt_output_trajectory.joint_trajectory.joint_names.resize(5);
@@ -449,7 +456,7 @@ TEST_F(RobotLocalPlannerCompositionTest, InterruptGenerator) {
       .WillRepeatedly(::testing::DoAll(::testing::SetArgReferee<2>(opt_output_trajectory),
                                        ::testing::Return(false)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   planner_->InterruptPlanPath();
@@ -459,13 +466,13 @@ TEST_F(RobotLocalPlannerCompositionTest, InterruptGenerator) {
   EXPECT_TRUE(trajectory_future.get().joint_trajectory.joint_names.empty());
 }
 
-// EVALUATE interrupt
+// Interruption during evaluate execution
 TEST_F(RobotLocalPlannerCompositionTest, InterruptEvaluator) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Invoke(Sleep4));
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_)).Times(0);
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_)).Times(0);
 
   tmc_manipulation_types::TimedRobotTrajectory opt_output_trajectory;
   opt_output_trajectory.joint_trajectory.joint_names.resize(5);
@@ -474,7 +481,7 @@ TEST_F(RobotLocalPlannerCompositionTest, InterruptEvaluator) {
       .WillRepeatedly(::testing::DoAll(::testing::SetArgReferee<2>(opt_output_trajectory),
                                        ::testing::Return(false)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   planner_->InterruptPlanPath();
@@ -484,14 +491,14 @@ TEST_F(RobotLocalPlannerCompositionTest, InterruptEvaluator) {
   EXPECT_TRUE(trajectory_future.get().joint_trajectory.joint_names.empty());
 }
 
-// Validate interrupt
+// Interruption during validate execution
 TEST_F(RobotLocalPlannerCompositionTest, InterruptValidator) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_))
-      .Times(1).WillOnce(::testing::Invoke(Sleep3));
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
+      .Times(1).WillOnce(::testing::Invoke(Sleep4));
 
   tmc_manipulation_types::TimedRobotTrajectory opt_output_trajectory;
   opt_output_trajectory.joint_trajectory.joint_names.resize(5);
@@ -500,7 +507,7 @@ TEST_F(RobotLocalPlannerCompositionTest, InterruptValidator) {
       .WillRepeatedly(::testing::DoAll(::testing::SetArgReferee<2>(opt_output_trajectory),
                                        ::testing::Return(true)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   planner_->InterruptPlanPath();
@@ -510,13 +517,13 @@ TEST_F(RobotLocalPlannerCompositionTest, InterruptValidator) {
   EXPECT_TRUE(trajectory_future.get().joint_trajectory.joint_names.empty());
 }
 
-// Optimize interrupt during execution
+// Interruption during optimize execution
 TEST_F(RobotLocalPlannerCompositionTest, InterruptOptimizer) {
   EXPECT_CALL(*gen_, Generate(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
   EXPECT_CALL(*eval_, Evaluate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
-  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_))
+  EXPECT_CALL(*val_, Validate(::testing::_, ::testing::_, ::testing::_, ::testing::_))
       .Times(1).WillOnce(::testing::Return(true));
 
   tmc_manipulation_types::TimedRobotTrajectory opt_output_trajectory;
@@ -526,7 +533,7 @@ TEST_F(RobotLocalPlannerCompositionTest, InterruptOptimizer) {
       .WillRepeatedly(::testing::DoAll(::testing::SetArgReferee<2>(opt_output_trajectory),
                                        ::testing::Invoke(Sleep3)));
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1, {"ignored"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, initial_state_, 0.1);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   planner_->InterruptPlanPath();

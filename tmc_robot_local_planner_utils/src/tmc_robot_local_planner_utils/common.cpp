@@ -31,13 +31,13 @@ DAMAGE.
 
 namespace tmc_robot_local_planner_utils {
 
-// // Get the MAP origin
+// // Get the map origin
 // Eigen::Affine2d GetMapOrigin(const tmc_manipulation_types::OccupancyGrid& map) {
 //   return Eigen::Translation2d(map.info.origin.translation().topRows<2>()) *
 //       map.info.origin.linear().topLeftCorner<2, 2>();
 // }
 
-// Acquired the trajectory point at the end
+// Get the last trajectory point
 bool GetLastPoint(
     const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
     tmc_manipulation_types::RobotState& state_out) {
@@ -62,7 +62,7 @@ bool GetLastPoint(
   return true;
 }
 
-// Erase orbit points that exceed the specified time
+// Erase trajectory points that exceed the specified time
 void DeleteTrajectoryPointsAtTime(
     double time,
     tmc_manipulation_types::TimedRobotTrajectory& trajectory) {
@@ -79,7 +79,7 @@ void DeleteTrajectoryPointsAtTime(
   }
 }
 
-// Erase orbital point in the specified score in the order of time stamps
+// Erase trajectory points in order of oldest timestamps for the specified number of points
 bool DeleteTrajectoryPointsAtPoint(uint32_t num,
                                    trajectory_msgs::msg::JointTrajectory& trajectory) {
   if (num > 0) {
@@ -95,7 +95,7 @@ bool DeleteTrajectoryPointsAtPoint(uint32_t num,
   return false;
 }
 
-// Joint orbit and BASE orbital point will have the same time
+// Determine if joint trajectory points and base trajectory points have the same time
 bool CheckTimeFromStarts(
     const tmc_manipulation_types::TimedRobotTrajectory& trajectory) {
   if (trajectory.joint_trajectory.points.size() !=
@@ -116,7 +116,7 @@ bool CheckTimeFromStarts(
   return true;
 }
 
-// From the input orbit to the track point with the minimum time in it, larger than the current time+cycle
+// Return the trajectory point from the input trajectory that is greater than the current time + period and has the smallest time among them
 bool SearchConnectablePoint(
     const tf2::Stamped<tmc_manipulation_types::TimedRobotTrajectory>& trajectory,
     const rclcpp::Time& target_time,
@@ -126,7 +126,7 @@ bool SearchConnectablePoint(
     return false;
   }
 
-  // The first orbit point larger than the current time+cycle
+  // The first trajectory point greater than the current time + period
   // Search using JointTrajectory
   auto joint_point_it = std::find_if(
       trajectory.joint_trajectory.points.begin(),
@@ -138,7 +138,7 @@ bool SearchConnectablePoint(
   tmc_manipulation_types::TimedJointTrajectoryPoint joint_point;
   tmc_manipulation_types::TimedMultiDOFJointTrajectoryPoint base_point;
   if (joint_point_it != trajectory.joint_trajectory.points.end()) {
-    // If you find a connected orbital point
+    // If a connectable trajectory point is found
     const auto nanoseconds =
         std::chrono::duration_cast<std::chrono::nanoseconds>(trajectory.stamp_.time_since_epoch()).count();
     connectable_time = rclcpp::Time(nanoseconds, target_time.get_clock_type()) +
@@ -159,7 +159,7 @@ bool SearchConnectablePoint(
   return true;
 }
 
-// Shift the orbit time
+// Shift the trajectory time
 void ShiftTrajectoryTimes(
     const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
     double shift_time,

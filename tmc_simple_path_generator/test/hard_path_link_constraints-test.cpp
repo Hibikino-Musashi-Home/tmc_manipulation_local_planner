@@ -105,13 +105,15 @@ tmc_simple_path_generator::SamplingParameters::Ptr GenerateSamplingParameters() 
   params->base_weights = Eigen::Vector3d(5.0, 5.0, 1.0);
   params->joint_limit_upper.resize(kJointNames.size(), 3.0);
   params->joint_limit_lower.resize(kJointNames.size(), -3.0);
-  params->base_movement_type = tmc_manipulation_types::kPlanar;
+  params->ik_joints[kEndFrame] = kJointNames;
+  params->SetDefaultBaseMovementType(tmc_manipulation_types::kPlanar);
+  params->UpdateBaseMovementType(true);
   return params;
 }
 
 tmc_robot_local_planner::ILinkConstraint::Ptr GenerateLinkConstraint(
     const Eigen::Affine3d& origin_to_hand_goal, double max_bound_x) {
-  tmc_manipulation_types::RegionValues max_bounds;
+  tmc_manipulation_types::RegionValues max_bounds = tmc_manipulation_types::RegionValues::Zero();
   max_bounds[0] = max_bound_x;
   tmc_manipulation_types::TaskSpaceRegion tsr(origin_to_hand_goal, Eigen::Affine3d::Identity(),
                                               tmc_manipulation_types::RegionValues::Zero(), max_bounds,
@@ -165,8 +167,8 @@ void HardPathLinkConstraintsTest::TestEndFramePosition(
 }
 
 TEST_F(HardPathLinkConstraintsTest, ConstrainAllPoints) {
-  // Stanford_manipulator matches the robot root and end effector posture if the joint angle is zero.
-  // So you can easily test by moving the XY plane.
+  // When the joint angles of the stanford_manipulator are zero, the posture of the robot root and the end effector match
+  // Therefore, it can be easily tested by moving in the xy-plane
 
   auto trajectory = GenerateTrajectory({AddBasePoseOffset(GenerateDefaultState(), 0.5, 0.0),
                                         AddBasePoseOffset(GenerateDefaultState(), 0.2, -0.3),
@@ -181,12 +183,77 @@ TEST_F(HardPathLinkConstraintsTest, ConstrainAllPoints) {
   ASSERT_EQ(trajectory.joint_trajectory.points.size(), 6);
   ASSERT_EQ(trajectory.multi_dof_joint_trajectory.points.size(), 6);
 
-  const auto pos_y = origin_to_constraint.translation().y();
   TestEndFramePosition(trajectory, 0, 0.5, 0.0);
   TestEndFramePosition(trajectory, 1, 0.3, 0.0);
   TestEndFramePosition(trajectory, 2, 0.2, 0.0);
   TestEndFramePosition(trajectory, 3, 0.1, 0.0);
   TestEndFramePosition(trajectory, 4, 0.0, 0.0);
+  TestEndFramePosition(trajectory, 5, -0.1, 0.0);
+}
+
+TEST_F(HardPathLinkConstraintsTest, ConstraintWithInitialStateOffset) {
+  auto trajectory = GenerateTrajectory({AddBasePoseOffset(GenerateDefaultState(), 0.5, 0.0),
+                                        AddBasePoseOffset(GenerateDefaultState(), 0.2, -0.3),
+                                        AddBasePoseOffset(GenerateDefaultState(), 0.1, 0.3),
+                                        AddBasePoseOffset(GenerateDefaultState(), -0.1, 0.0)});
+
+  const auto origin_to_constraint = CalculateEndFramePose(robot_, GenerateDefaultState());
+  const std::vector<tmc_robot_local_planner::ILinkConstraint::Ptr> link_constraints = {
+    GenerateLinkConstraint(origin_to_constraint, 0.3)};
+
+  ASSERT_TRUE(path_constraints_->ConstrainTrajectory(link_constraints, GenerateSamplingParameters(), 1, 0, trajectory));
+  ASSERT_EQ(trajectory.joint_trajectory.points.size(), 6);
+  ASSERT_EQ(trajectory.multi_dof_joint_trajectory.points.size(), 6);
+
+  TestEndFramePosition(trajectory, 0, 0.5, 0.0);
+  TestEndFramePosition(trajectory, 1, 0.2, -0.3);
+  TestEndFramePosition(trajectory, 2, 0.2, 0.0);
+  TestEndFramePosition(trajectory, 3, 0.1, 0.0);
+  TestEndFramePosition(trajectory, 4, 0.0, 0.0);
+  TestEndFramePosition(trajectory, 5, -0.1, 0.0);
+}
+
+TEST_F(HardPathLinkConstraintsTest, ConstraintWithGoalStateOffset) {
+  auto trajectory = GenerateTrajectory({AddBasePoseOffset(GenerateDefaultState(), 0.5, 0.0),
+                                        AddBasePoseOffset(GenerateDefaultState(), 0.2, -0.3),
+                                        AddBasePoseOffset(GenerateDefaultState(), 0.1, 0.3),
+                                        AddBasePoseOffset(GenerateDefaultState(), -0.1, 0.0)});
+
+  const auto origin_to_constraint = CalculateEndFramePose(robot_, GenerateDefaultState());
+  const std::vector<tmc_robot_local_planner::ILinkConstraint::Ptr> link_constraints = {
+    GenerateLinkConstraint(origin_to_constraint, 0.3)};
+
+  ASSERT_TRUE(path_constraints_->ConstrainTrajectory(link_constraints, GenerateSamplingParameters(), 0, 1, trajectory));
+  ASSERT_EQ(trajectory.joint_trajectory.points.size(), 6);
+  ASSERT_EQ(trajectory.multi_dof_joint_trajectory.points.size(), 6);
+
+  TestEndFramePosition(trajectory, 0, 0.5, 0.0);
+  TestEndFramePosition(trajectory, 1, 0.3, 0.0);
+  TestEndFramePosition(trajectory, 2, 0.2, 0.0);
+  TestEndFramePosition(trajectory, 3, 0.1, 0.0);
+  TestEndFramePosition(trajectory, 4, 0.1, 0.3);
+  TestEndFramePosition(trajectory, 5, -0.1, 0.0);
+}
+
+TEST_F(HardPathLinkConstraintsTest, ConstraintWithInitialGoalStateOffset) {
+  auto trajectory = GenerateTrajectory({AddBasePoseOffset(GenerateDefaultState(), 0.5, 0.0),
+                                        AddBasePoseOffset(GenerateDefaultState(), 0.2, -0.3),
+                                        AddBasePoseOffset(GenerateDefaultState(), 0.1, 0.3),
+                                        AddBasePoseOffset(GenerateDefaultState(), -0.1, 0.0)});
+
+  const auto origin_to_constraint = CalculateEndFramePose(robot_, GenerateDefaultState());
+  const std::vector<tmc_robot_local_planner::ILinkConstraint::Ptr> link_constraints = {
+    GenerateLinkConstraint(origin_to_constraint, 0.3)};
+
+  ASSERT_TRUE(path_constraints_->ConstrainTrajectory(link_constraints, GenerateSamplingParameters(), 1, 1, trajectory));
+  ASSERT_EQ(trajectory.joint_trajectory.points.size(), 6);
+  ASSERT_EQ(trajectory.multi_dof_joint_trajectory.points.size(), 6);
+
+  TestEndFramePosition(trajectory, 0, 0.5, 0.0);
+  TestEndFramePosition(trajectory, 1, 0.2, -0.3);
+  TestEndFramePosition(trajectory, 2, 0.2, 0.0);
+  TestEndFramePosition(trajectory, 3, 0.1, 0.0);
+  TestEndFramePosition(trajectory, 4, 0.1, 0.3);
   TestEndFramePosition(trajectory, 5, -0.1, 0.0);
 }
 
@@ -243,7 +310,7 @@ TEST_F(HardPathLinkConstraintsTest, SampleConstraints) {
     ASSERT_TRUE(path_constraints_->ConstrainTrajectory(link_constraints, GenerateSamplingParameters(), trajectory));
     ASSERT_EQ(trajectory.joint_trajectory.points.size(), trajectory.multi_dof_joint_trajectory.points.size());
 
-    // GOAL meets one constraint, so you can get 3 points
+    // Since the goal satisfies one of the constraints, it is possible to have 3 points
     if (trajectory.joint_trajectory.points.size() == 4) {
       TestEndFramePosition(trajectory, 0, 0.5, 0.0);
       TestEndFramePosition(trajectory, 1, 0.0, 0.0);
@@ -261,13 +328,13 @@ TEST_F(HardPathLinkConstraintsTest, SampleConstraints) {
     }
   }
 
-  // Since it is a binary distribution of 100 samples, 3σ is 15
+  // Since it is a binomial distribution with a sample size of 100, 3σ is 15
   EXPECT_NEAR(count_1, 50, 15);
   EXPECT_NEAR(count_2, 50, 15);
 }
 
 TEST_F(HardPathLinkConstraintsTest, NoConstraints) {
-  // Become a success with through
+  // It will be successful without any hindrance
   auto trajectory = GenerateTrajectory({AddBasePoseOffset(GenerateDefaultState(), 0.5, 0.0),
                                         AddBasePoseOffset(GenerateDefaultState(), 0.1, 0.3),
                                         AddBasePoseOffset(GenerateDefaultState(), -0.1, 0.0)});

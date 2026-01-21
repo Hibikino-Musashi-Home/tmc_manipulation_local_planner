@@ -63,6 +63,10 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(tmc_manipulation_tests REQUIRED)
 
+  ament_add_gtest(constraints_combination_test test/constraints_combination-test.cpp)
+  target_link_libraries(constraints_combination_test ${PROJECT_NAME})
+  ament_target_dependencies(constraints_combination_test tmc_manipulation_tests)
+
   ament_add_gtest(goal_relative_linear_constraint_test test/goal_relative_linear_constraint-test.cpp)
   target_link_libraries(goal_relative_linear_constraint_test ${PROJECT_NAME})
   ament_target_dependencies(goal_relative_linear_constraint_test tmc_manipulation_tests)
@@ -70,6 +74,10 @@ if(BUILD_TESTING)
   ament_add_gtest(hard_path_link_constraints_test test/hard_path_link_constraints-test.cpp)
   target_link_libraries(hard_path_link_constraints_test ${PROJECT_NAME})
   ament_target_dependencies(hard_path_link_constraints_test tmc_manipulation_tests)
+
+  ament_add_gtest(initial_motion_linear_constraint_test test/initial_motion_linear_constraint-test.cpp)
+  target_link_libraries(initial_motion_linear_constraint_test ${PROJECT_NAME})
+  ament_target_dependencies(initial_motion_linear_constraint_test tmc_manipulation_tests)
 
   ament_add_gtest(planar_trajectory_interpolator_test test/planar_trajectory_interpolator-test.cpp)
   target_link_libraries(planar_trajectory_interpolator_test ${PROJECT_NAME})

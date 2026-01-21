@@ -83,7 +83,9 @@ void Union(std::vector<std::vector<uint32_t>>& candidates_seq) {
   candidates_seq = {new_candidates};
 }
 
-/// @breif Return the index to explore by jumping
+/// @brief Returns an index for skipping exploration
+/// @param num Number of indices
+/// @return Skipping index
 std::vector<uint32_t> MakeSkippingIndices(uint32_t num) {
   std::vector<uint32_t> indices;
   if (num == 0) {
@@ -134,7 +136,7 @@ uint32_t GetTargetJointIndex(const std::vector<std::string>& joint_names, const 
 
 std::vector<uint32_t> TrajectoryPointsCollisionCheckSkippingOrder::GenerateIndices(
     const tmc_manipulation_types::TimedRobotTrajectory& trajectory) {
-  return MakeSkippingIndices(trajectory.joint_trajectory.points.size());
+  return MakeSkippingIndices(trajectory.multi_dof_joint_trajectory.points.size());
 }
 
 void TrajectoryPointsCollisionCheckBothEnds::Init(const rclcpp::Node::SharedPtr& node) {
@@ -145,15 +147,15 @@ void TrajectoryPointsCollisionCheckBothEnds::Init(const rclcpp::Node::SharedPtr&
 
 std::vector<uint32_t> TrajectoryPointsCollisionCheckBothEnds::GenerateIndices(
     const tmc_manipulation_types::TimedRobotTrajectory& trajectory) {
-  const auto motion_time = trajectory.joint_trajectory.points.back().time_from_start;
+  const auto motion_time = trajectory.multi_dof_joint_trajectory.points.back().time_from_start;
   if (motion_time < time_from_start_ + time_from_end_) {
-    return MakeSkippingIndices(trajectory.joint_trajectory.points.size());
+    return MakeSkippingIndices(trajectory.multi_dof_joint_trajectory.points.size());
   }
 
-  // It is better to work hard on abnormal processing, but it is a premise that a decent chopped trajectory will be entered, so I will not do my best now.
+  // It's better to work hard on error handling, but since it's assumed that a trajectory with a reasonable step width will be input, I won't work hard on it now
   std::vector<uint32_t> indices_from_start;
-  for (auto i = 0u; i < trajectory.joint_trajectory.points.size(); ++i) {
-    if (trajectory.joint_trajectory.points[i].time_from_start < time_from_start_) {
+  for (auto i = 0u; i < trajectory.multi_dof_joint_trajectory.points.size(); ++i) {
+    if (trajectory.multi_dof_joint_trajectory.points[i].time_from_start < time_from_start_) {
       indices_from_start.push_back(i);
     } else {
       break;
@@ -162,9 +164,9 @@ std::vector<uint32_t> TrajectoryPointsCollisionCheckBothEnds::GenerateIndices(
 
   std::vector<uint32_t> indices_from_end;
   const auto time_from_end_threshold = motion_time - time_from_end_;
-  for (auto i = 0u; i < trajectory.joint_trajectory.points.size(); ++i) {
-    const auto index = trajectory.joint_trajectory.points.size() - i - 1;
-    if (trajectory.joint_trajectory.points[index].time_from_start > time_from_end_threshold) {
+  for (auto i = 0u; i < trajectory.multi_dof_joint_trajectory.points.size(); ++i) {
+    const auto index = trajectory.multi_dof_joint_trajectory.points.size() - i - 1;
+    if (trajectory.multi_dof_joint_trajectory.points[index].time_from_start > time_from_end_threshold) {
       indices_from_end.push_back(index);
     } else {
       break;
@@ -173,9 +175,10 @@ std::vector<uint32_t> TrajectoryPointsCollisionCheckBothEnds::GenerateIndices(
 
   auto merged_indices = indices_from_start;
 
-  auto target_stamp = trajectory.joint_trajectory.points[indices_from_start.back()].time_from_start + interval_middle_;
+  auto target_stamp =
+      trajectory.multi_dof_joint_trajectory.points[indices_from_start.back()].time_from_start + interval_middle_;
   for (auto i = indices_from_start.back() + 1; i < indices_from_end.back(); ++i) {
-    if (trajectory.joint_trajectory.points[i].time_from_start > target_stamp) {
+    if (trajectory.multi_dof_joint_trajectory.points[i].time_from_start > target_stamp) {
       merged_indices.push_back(i);
       target_stamp += interval_middle_;
     }

@@ -40,7 +40,7 @@ using Eigen::VectorXd;
 
 namespace tmc_robot_local_planner_utils {
 
-// Extract partial timed_joint_trajectory from Trajectory for the entire robot
+// Extract a partial timed_joint_trajectory from the entire trajectory of the robot
 tmc_manipulation_types::TimedJointTrajectory ExtractMultiDOFJointTrajectory(
     const tmc_manipulation_types::TimedMultiDOFJointTrajectory& whole_trajectory,
     const tmc_manipulation_types::NameSeq& coordinates) {
@@ -63,7 +63,7 @@ tmc_manipulation_types::TimedJointTrajectory ExtractMultiDOFJointTrajectory(
   return trajectory;
 }
 
-// Extract the orbit after the specified time
+// Extract the trajectory after the specified time
 bool ExtractTrajectoryAtTime(
     const tf2::Stamped<tmc_manipulation_types::TimedRobotTrajectory>& trajectory,
     const rclcpp::Time& target_time,

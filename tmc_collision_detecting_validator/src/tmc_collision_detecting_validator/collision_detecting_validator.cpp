@@ -29,10 +29,12 @@ DAMAGE.
 
 #include "collision_detecting_validator.hpp"
 
+#include <algorithm>
 #include <string>
+#include <utility>
 
 #include <rclcpp_action/create_server.hpp>
-#include <std_msgs/msg/u_int32.hpp>
+#include <std_msgs/msg/u_int32_multi_array.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
 
 namespace {
@@ -42,7 +44,18 @@ const char* const kOriginFrameId = "odom";
 
 namespace tmc_collision_detecting_validator {
 
-CollisionDetectingValidatorPlugin::CollisionDetectingValidatorPlugin() {}
+CollisionDetectingValidatorPlugin::CollisionDetectingValidatorPlugin() : stop_thread_(false) {}
+
+CollisionDetectingValidatorPlugin::~CollisionDetectingValidatorPlugin() {
+  {
+    std::unique_lock<std::mutex> lock(request_queue_mutex_);
+    stop_thread_ = true;
+  }
+  condition_.notify_all();
+  for (auto& worker : workers_) {
+    worker.join();
+  }
+}
 
 void CollisionDetectingValidatorPlugin::Initialize(const rclcpp::Node::SharedPtr& node) {
   node_ = node;
@@ -64,7 +77,19 @@ void CollisionDetectingValidatorPlugin::Initialize(const rclcpp::Node::SharedPtr
 
   logger_ = std::make_shared<tmc_utils::MessageLogger>(tmc_utils::GetLogDirectory() + "/validation_");
 
-  robot_collision_checker_ = std::make_shared<RobotCollisionChecker>(node, print_debug_info_);
+  const auto validation_thread_num = tmc_utils::GetParameter<int64_t>(node, "validation_thread_num", 1);
+  if (validation_thread_num <= 0) {
+    RCLCPP_FATAL(node->get_logger(), "validation_thread_num must be greater than 0");
+    exit(EXIT_FAILURE);
+  }
+  for (auto i = 0; i < validation_thread_num; ++i) {
+    // TODO(Takeshita) printが混線するがどうするか？
+    robot_collision_checkers_.emplace_back(std::make_shared<RobotCollisionChecker>(node, print_debug_info_));
+    do_update_environment_.push_back(true);
+    workers_.emplace_back(std::thread(std::bind(&CollisionDetectingValidatorPlugin::ValidateThread, this, i)));
+  }
+
+  collision_environment_cache_ = std::make_shared<CollisionEnvironmentCache>(node);
 
   const auto obstacle_map_topic_names = tmc_utils::GetParameter<std::vector<std::string>>(
       node, "obstacle_map_topic_names", {});
@@ -75,6 +100,7 @@ void CollisionDetectingValidatorPlugin::Initialize(const rclcpp::Node::SharedPtr
 
 bool CollisionDetectingValidatorPlugin::Validate(
     const std::vector<tmc_manipulation_types::TimedRobotTrajectory>& trajectories_in,
+    const tmc_manipulation_types::RobotState& initial_state,
     std::function<bool()> interrupt,
     tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) {
   auto end_stamp = node_->get_clock()->now() + rclcpp::Duration::from_seconds(validate_timeout_->value());
@@ -100,54 +126,168 @@ bool CollisionDetectingValidatorPlugin::Validate(
     }
   }
 
-  robot_collision_checker_->DestroyAllObstacleObject();
-  robot_collision_checker_->UpdateEnvironmentObstacleObject();
-  if (save_request_->value()) {
-    robot_collision_checker_->DumpEnvironment(logger_);
+  for (const auto& checker : robot_collision_checkers_) {
+    checker->UpdateJointState(initial_state.joint_state);
   }
 
+  const auto current_environment = collision_environment_cache_->GetCollisionEnvironment();
+  if (save_request_->value()) {
+    current_environment.DumpEnvironment(logger_);
+  }
+
+  std::fill(do_update_environment_.begin(), do_update_environment_.end(), true);
+  feasible_min_index_ = std::nullopt;
   for (auto i = 0u; i < trajectories_in.size(); ++i) {
-    if (interrupt_func()) {
-      DumpCount(i);
-      return false;
+    {
+      std::unique_lock<std::mutex> lock(request_queue_mutex_);
+      request_queue_.emplace(trajectories_in[i], current_environment, i);
     }
-    bool is_feasible = true;
-    for (const auto& checker : map_collision_checkers) {
-      if (!checker->IsFeasible(trajectories_in[i], interrupt_func)) {
-        is_feasible = false;
+    condition_.notify_one();
+  }
+
+  uint32_t remaining_response = trajectories_in.size();
+  bool is_success = false;
+  std::vector<uint32_t> validated_indices;
+  while (!is_success && node_->get_clock()->now() < end_stamp && remaining_response > 0) {
+    std::unique_lock<std::mutex> lock(response_queue_mutex_);
+    if (!response_queue_.empty()) {
+      auto res = std::move(response_queue_.front());
+      response_queue_.pop();
+      --remaining_response;
+      if (res.is_feasible) {
+        is_success = true;
+      }
+      if (res.has_validated) {
+        validated_indices.push_back(res.index);
+      }
+      if (print_debug_info_->value() && !res.error_message.empty()) {
+        RCLCPP_INFO(node_->get_logger(), "%s", res.error_message.c_str());
+      }
+    }
+  }
+  if (!is_success) {
+    std::unique_lock<std::mutex> lock(feasible_min_index_mutex_);
+    feasible_min_index_ = 0;
+  }
+  while (remaining_response > 0) {
+    std::unique_lock<std::mutex> lock(response_queue_mutex_);
+    if (!response_queue_.empty()) {
+      auto res = std::move(response_queue_.front());
+      response_queue_.pop();
+      --remaining_response;
+      if (res.has_validated) {
+        validated_indices.push_back(res.index);
+      }
+    }
+  }
+  if (is_success) {
+    trajectory_out = trajectories_in[feasible_min_index_.value()];
+  }
+  if (save_request_->value()) {
+    DumpCount(validated_indices);
+  }
+  return is_success;
+}
+
+void CollisionDetectingValidatorPlugin::ValidateThread(const uint32_t checker_id) {
+  std::shared_ptr<Request> req;
+  for (;;) {
+    // Wait until a request comes
+    {
+      std::unique_lock<std::mutex> lock(request_queue_mutex_);
+      condition_.wait(lock, [this]{ return this->stop_thread_ || !this->request_queue_.empty(); });
+      if (stop_thread_ && request_queue_.empty()) {
+        return;
+      }
+      req = std::make_shared<Request>(std::move(request_queue_.front()));
+      request_queue_.pop();
+    }
+
+    std::function<bool()> interrupt = [this, req]() -> bool{
+      std::unique_lock<std::mutex> lock(this->feasible_min_index_mutex_, std::try_to_lock);
+      if (lock) {
+        if (!this->feasible_min_index_.has_value()) {
+          return false;
+        } else if (req->index > this->feasible_min_index_.value()) {
+          return true;
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    };
+
+    // Update the environment if necessary
+    if (do_update_environment_[checker_id]) {
+      req->environment.UpdateCollisionDetector(robot_collision_checkers_[checker_id]);
+      do_update_environment_[checker_id] = false;
+    }
+
+    Response res(*req);
+    // Check for interference with the 2D map
+    for (const auto& checker : map_collision_checkers_) {
+      const auto result = checker->IsFeasible(req->trajectory, interrupt, res.error_message);
+      if (result == MapCollisionChecker::Result::kFeasible) {
+        // pass
+      } else if (result == MapCollisionChecker::Result::kInterrupted) {
+        res.is_feasible = false;
+        res.has_validated = false;
+        break;
+      } else {
+        res.is_feasible = false;
+        res.has_validated = true;
         break;
       }
     }
-    if (!is_feasible) {
+    // The default for is_feasible is true; if it is false, there is no point in further checking
+    if (!res.is_feasible) {
+      std::unique_lock<std::mutex> lock(response_queue_mutex_);
+      response_queue_.push(std::move(res));
       continue;
     }
-    if (robot_collision_checker_->IsFeasible(trajectories_in[i], interrupt_func)) {
-      trajectory_out = trajectories_in[i];
-      DumpCount(i);
-      return true;
+
+    // Interference check with CollisionChecker
+    const auto result = robot_collision_checkers_[checker_id]->IsFeasible(
+        req->trajectory, interrupt, res.error_message);
+    if (result == RobotCollisionChecker::Result::kFeasible) {
+      res.is_feasible = true;
+      res.has_validated = true;
+      std::unique_lock<std::mutex> lock(feasible_min_index_mutex_);
+      feasible_min_index_ = std::min(req->index, feasible_min_index_.value_or(req->index));
+    } else if (result == RobotCollisionChecker::Result::kInterrupted) {
+      res.is_feasible = false;
+      res.has_validated = false;
+    } else {
+      res.is_feasible = false;
+      res.has_validated = true;
+    }
+    {
+      std::unique_lock<std::mutex> lock(response_queue_mutex_);
+      response_queue_.push(std::move(res));
     }
   }
-  DumpCount(trajectories_in.size() - 1);
-  return false;
 }
 
-void CollisionDetectingValidatorPlugin::DumpCount(uint32_t count) {
+void CollisionDetectingValidatorPlugin::DumpCount(const std::vector<uint32_t>& indices) {
   if (save_request_->value()) {
-    std_msgs::msg::UInt32 count_msg;
-    count_msg.data = count;
-    logger_->SaveMessage(".count", count_msg);
+    std_msgs::msg::UInt32MultiArray indices_msg;
+    indices_msg.data = indices;
+    logger_->SaveMessage(".indices", indices_msg);
   }
 }
 
 bool CollisionDetectingValidatorPlugin::UpdateMapToRobotOrigin(
     const std::shared_ptr<MapCollisionChecker>& map_collision_checker) {
+  map_collision_checker->UpdateMap();
+
   const auto map_frame = map_collision_checker->GetMapFrame();
   if (map_frame.empty()) {
     return false;
   }
   Eigen::Affine3d map_to_odom;
   try {
-    // Strictly speaking, I think it's better to convert it at the time of MAP
+    // Strictly speaking, it might be better to convert using the map's timestamp
     const auto transform = tf_buffer_->lookupTransform(map_frame, kOriginFrameId, tf2::TimePointZero);
     map_to_odom = tf2::transformToEigen(transform);
   } catch (const tf2::TransformException& e) {
@@ -200,9 +340,12 @@ void CollisionDetectingValidator::FeedbackSetupCallback(ServerGoalHandlePtr goal
     trajectories_in.emplace_back(trajectory);
   }
 
+  tmc_manipulation_types::RobotState initial_state;
+  tmc_manipulation_types_bridge::RobotStateMsgToRobotState(goal->initial_state, initial_state);
+
   tmc_manipulation_types::TimedRobotTrajectory trajectory_out;
   auto interrupt_func = [goal_handle]() { return goal_handle->is_canceling(); };
-  const auto val_result = impl_.Validate(trajectories_in, interrupt_func, trajectory_out);
+  const auto val_result = impl_.Validate(trajectories_in, initial_state, interrupt_func, trajectory_out);
 
   auto action_result = std::make_shared<tmc_planning_msgs::action::ValidateRobotTrajectories::Result>();
   if (val_result) {

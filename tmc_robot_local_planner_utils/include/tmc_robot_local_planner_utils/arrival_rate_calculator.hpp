@@ -41,14 +41,14 @@ namespace tmc_robot_local_planner_utils {
 
 class ArrivalRateCalculator {
  public:
-  /// @brief constructor
+  /// @brief Constructor
   ArrivalRateCalculator();
   /// @brief Destructor
   ~ArrivalRateCalculator() {}
-  /// @brief Calculate the reach to the goal
+  /// @brief Calculate the achievement rate to the goal
   boost::optional<double> CalculateArrivalRate(const tmc_manipulation_types::RobotState& state_in);
 
-  /// @brief Set Constraint
+  /// @brief Set the constraint
   void SetConstraints(const tmc_robot_local_planner::Constraints& constraints) {
     constraints_ = constraints;
     is_new_constraints_ = true;
@@ -57,7 +57,7 @@ class ArrivalRateCalculator {
   using Ptr = std::shared_ptr<ArrivalRateCalculator>;
 
  private:
-  /// @brief Normalization within the range of 0-100
+  /// @brief Normalize in the range of 0-100
   double Normalize(double value);
 
   tmc_robot_local_planner::Constraints constraints_;

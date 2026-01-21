@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief Soft Link Constraint Score Calculation Class
 
 #include <tmc_local_path_evaluator/soft_link_constraint_score_calculation.hpp>
 
@@ -70,7 +71,7 @@ boost::optional<double> SoftLinkConstraintScoreCalculation::CalculateImpl(
 
   const auto state = ExtractLastState(trajectory);
   robot_->SetNamedAngle(state.joint_state);
-  // I'm doing it in DoCoMo [0], so I'll do that too, but I want to do something
+  // Everyone is doing it with [0], so I'll do the same here, but I want to find a way to change it.
   robot_->SetRobotTransform(state.multi_dof_joint_state.poses[0]);
 
   double score = 0.0;

@@ -1,11 +1,10 @@
 <package format="2">
   <name>tmc_robot_local_planner_utils</name>
   <version>2.0.0</version>
-  <description>The tmc_robot_local_planner_utils package</description>
+  <description>tmc_robot_local_planner_utils package</description>
 
   <maintainer email="xr-hsr-support@mail.toyota.co.jp">HSR Support</maintainer>
 
-  <author>Keisuke Takeshita</author>
   <author>Satoru Onoda</author>
 
   <license>BSD 3-clause Clear License</license>

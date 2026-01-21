@@ -52,20 +52,40 @@ bool CheckRobotState(const tmc_manipulation_types::RobotState& robot_state) {
   return true;
 }
 
-tmc_robot_kinematics_model::IKRequest GenerateIKRequest(
+std::optional<tmc_robot_kinematics_model::IKRequest> GenerateIKRequest(
     const Eigen::Affine3d& origin_to_end,
     const tmc_manipulation_types::RobotState& initial_state,
     const tmc_simple_path_generator::SamplingParameters::Ptr& params,
     const std::string& end_frame) {
+  if (params->ik_joints.find(end_frame) == params->ik_joints.end()) {
+    CONSOLE_BRIDGE_logWarn("IK joints for end effector %s is not found", end_frame.c_str());
+    return std::nullopt;
+  }
   tmc_robot_kinematics_model::IKRequest req(
       static_cast<tmc_manipulation_types::BaseMovementType>(params->base_movement_type));
   req.frame_name = end_frame;
   req.frame_to_end = Eigen::Affine3d::Identity();
   req.initial_angle.name = initial_state.joint_state.name;
   req.initial_angle.position = initial_state.joint_state.position;
-  req.use_joints = params->joint_names;
-  req.weight.resize(params->joint_weights.size() + params->base_weights.size());
-  req.weight << params->joint_weights, params->base_weights;
+  req.use_joints = params->ik_joints.at(end_frame);
+
+  Eigen::VectorXd joint_weight(req.use_joints.size());
+  for (size_t i = 0; i < req.use_joints.size(); ++i) {
+    auto it = std::find(params->joint_names.begin(), params->joint_names.end(), req.use_joints[i]);
+    if (it != params->joint_names.end()) {
+      const auto distance = std::distance(params->joint_names.begin(), it);
+      joint_weight[i] = params->joint_weights[distance];
+    } else {
+      joint_weight[i] = 1.0;
+    }
+  }
+  if (req.linear_base_movements.empty() && req.rotational_base_movements.empty()) {
+    req.weight = joint_weight;
+  } else {
+    req.weight.resize(req.use_joints.size() + params->base_weights.size());
+    req.weight << joint_weight, params->base_weights;
+  }
+
   req.origin_to_base = initial_state.multi_dof_joint_state.poses[0];
   req.ref_origin_to_end = origin_to_end;
   return req;
@@ -75,12 +95,12 @@ tmc_robot_kinematics_model::IKRequest GenerateIKRequest(
 
 namespace tmc_simple_path_generator {
 
-// constructor
+// Constructor
 SampleGoalGeneratorBase::SampleGoalGeneratorBase()
     : ik_solver_loader_("tmc_robot_kinematics_model", "tmc_robot_kinematics_model::IKSolver"),
       is_from_random_initial_state_(true) {}
 
-// Initialize to fix the seed
+// Initialization to fix the seed
 void SampleGoalGeneratorBase::Initialize(const rclcpp::Node::SharedPtr& node, uint32_t random_seed) {
   engine_.seed(random_seed);
 
@@ -91,12 +111,12 @@ void SampleGoalGeneratorBase::Initialize(const rclcpp::Node::SharedPtr& node, ui
   InitializeImpl(node);
 }
 
-// Initialize to generate seed randomly
+// Initialization to randomly generate the seed
 void SampleGoalGeneratorBase::Initialize(const rclcpp::Node::SharedPtr& node) {
   Initialize(node, std::random_device()());
 }
 
-// Sampling the goal posture from joint restraint
+// Sample goal posture from joint constraints
 bool SampleGoalGeneratorBase::SampleFromJointConstraints(
     const std::vector<tmc_robot_local_planner::IJointConstraint::Ptr>& joint_constraints,
     tmc_manipulation_types::RobotState& goal_state_out) {
@@ -107,15 +127,15 @@ bool SampleGoalGeneratorBase::SampleFromJointConstraints(
     return false;
   }
   auto choosen_constraint = SampleConstraints(joint_constraints, engine_);
-  auto constraint_state = choosen_constraint->Sample();
-  return OverwriteRobotState(goal_state_out,
-                             constraint_state.joint_state.name,
-                             constraint_state.multi_dof_joint_state.names,
-                             constraint_state.joint_state.position,
-                             constraint_state.multi_dof_joint_state.poses);
+  const auto sampled_state = choosen_constraint->Sample();
+  goal_state_out.joint_state = sampled_state.joint_state;
+  if (!sampled_state.multi_dof_joint_state.poses.empty()) {
+    goal_state_out.multi_dof_joint_state.poses[0] = sampled_state.multi_dof_joint_state.poses[0];
+  }
+  return true;
 }
 
-// Sampling the goal posture from the posture restraint
+// Sample goal posture from posture constraints
 bool SampleGoalGeneratorBase::SampleFromLinkConstraints(
     const tmc_manipulation_types::RobotState& initial_state,
     const std::vector<tmc_robot_local_planner::ILinkConstraint::Ptr>& link_constraints,
@@ -128,10 +148,15 @@ bool SampleGoalGeneratorBase::SampleFromLinkConstraints(
     return false;
   }
 
+  std::vector<std::string> base_names = {};
+  if (params->enable_base) {
+    base_names = params->base_names;
+  }
+
   tmc_manipulation_types::RobotState varianced_initial_state;
   if (is_from_random_initial_state_) {
-    if (!AddRandomState(initial_state, params->joint_names, params->base_names, params->joint_limit_upper,
-                        params->joint_limit_lower, ik_initial_range_->value(), varianced_initial_state)) {
+    if (!AddRandomState(initial_state, params->joint_names, base_names, params->joint_limit_upper,
+                        params->joint_limit_lower, ik_initial_range_->value(), engine_, varianced_initial_state)) {
       return false;
     }
   } else {
@@ -158,209 +183,36 @@ void SampleGoalGenerator::InitializeImpl(const rclcpp::Node::SharedPtr& node) {
   ik_solver_->set_robot_description(robot_description);
 }
 
-// Find ROBOT_STATE to realize the terminal posture origin_to_end
+// Find the robot_state that achieves the terminal posture origin_to_end
 bool SampleGoalGenerator::SolveIK(const Eigen::Affine3d& origin_to_end,
                                   const tmc_manipulation_types::RobotState& initial_state,
                                   const SamplingParameters::Ptr& params,
                                   const std::string& end_frame,
                                   tmc_manipulation_types::RobotState& solution_out) {
   const auto req = GenerateIKRequest(origin_to_end, initial_state, params, end_frame);
+  if (!req.has_value()) {
+    return false;
+  }
 
   tmc_manipulation_types::JointState res;
   Eigen::Affine3d origin_to_hand_result;
   Eigen::Affine3d origin_to_base_solution;
   tmc_robot_kinematics_model::IKResult result;
   try {
-    result = ik_solver_->Solve(req, res, origin_to_base_solution, origin_to_hand_result);
+    result = ik_solver_->Solve(req.value(), res, origin_to_base_solution, origin_to_hand_result);
   } catch (std::exception& e) {
     CONSOLE_BRIDGE_logWarn("%s", e.what());
     return false;
   }
   if (result == tmc_robot_kinematics_model::kSuccess) {
     solution_out = initial_state;
-    if (OverwriteRobotState(solution_out, params->joint_names, params->base_names, res.position,
-                            tmc_manipulation_types::PoseSeq(params->base_names.size(), origin_to_base_solution))) {
-      CONSOLE_BRIDGE_logDebug("IK success");
-      return true;
-    } else {
-      CONSOLE_BRIDGE_logWarn("IK Failed");
-      return false;
-    }
-  } else {
-    CONSOLE_BRIDGE_logDebug("IK Failed %d", result);
-    return false;
-  }
-}
-
-
-// constructor
-SampleGoalGeneratorMultiThread::SampleGoalGeneratorMultiThread()
-    : stop_thread_(false), stop_ik_(false), num_of_running_ik_(0) {}
-
-// Destructor
-SampleGoalGeneratorMultiThread::~SampleGoalGeneratorMultiThread() {
-  {
-    std::unique_lock<std::mutex> lock(request_queue_mutex_);
-    stop_thread_ = true;
-  }
-  condition_.notify_all();
-  for (auto& worker : workers_) {
-    worker.join();
-  }
-}
-
-// Treatment at the end
-void SampleGoalGeneratorMultiThread::Terminate() {
-  SampleGoalGeneratorBase::Terminate();
-
-  {
-    std::unique_lock<std::mutex> lock(request_queue_mutex_);
-    std::queue<Request>().swap(request_queue_);
-  }
-  {
-    std::unique_lock<std::mutex> lock(stop_ik_mutex_);
-    stop_ik_ = true;
-  }
-  while (true) {
-    std::unique_lock<std::mutex> lock(num_of_running_ik_mutex_, std::try_to_lock);
-    if (lock && (num_of_running_ik_ == 0)) break;
-  }
-  {
-    std::unique_lock<std::mutex> lock(response_queue_mutex_);
-    std::queue<Response>().swap(response_queue_);
-  }
-  {
-    std::unique_lock<std::mutex> lock(stop_ik_mutex_);
-    stop_ik_ = false;
-  }
-}
-
-// Implementation of initialization
-void SampleGoalGeneratorMultiThread::InitializeImpl(const rclcpp::Node::SharedPtr& node) {
-  int32_t thread_pool_size = tmc_utils::GetParameter(node, "thread_pool_size", 8);
-  if (thread_pool_size <= 0) {
-    throw std::domain_error("thread_pool_size must be positive.");
-  }
-
-  const auto solver_type = tmc_utils::GetParameter<std::string>(
-      node, "solver_type", "tmc_robot_kinematics_model/NumericIKSolver");
-
-  auto robot_description = tmc_utils::GetParameter<std::string>(node, "robot_description_kinematics", "");
-  if (robot_description.empty()) {
-      robot_description = tmc_utils::GetParameter<std::string>(node, "robot_description", "");
-  }
-
-  for (auto i = 0; i < thread_pool_size; ++i) {
-    workers_.emplace_back(
-        std::thread(std::bind(&SampleGoalGeneratorMultiThread::SolveIkThread, this, solver_type, robot_description)));
-  }
-}
-
-// Find ROBOT_STATE to realize the terminal posture origin_to_end
-bool SampleGoalGeneratorMultiThread::SolveIK(const Eigen::Affine3d& origin_to_end,
-                                             const tmc_manipulation_types::RobotState& initial_state,
-                                             const SamplingParameters::Ptr& params,
-                                             const std::string& end_frame,
-                                             tmc_manipulation_types::RobotState& solution_out) {
-  Request req;
-  req.request = GenerateIKRequest(origin_to_end, initial_state, params, end_frame);
-  req.initial_state = initial_state;
-
-  // Pack REQUEST in a queue
-  bool add_request_queue = false;
-  {
-    std::unique_lock<std::mutex> lock(request_queue_mutex_);
-    // Even if you accumulate too much queue, you only need to use memory for waste, so it will be twice as much as the number of threads.
-    if (request_queue_.size() < workers_.size() * 2) {
-      request_queue_.emplace(req);
-      add_request_queue = true;
-    }
-  }
-  if (add_request_queue) condition_.notify_one();
-
-  // Receive if you have Response
-  Response res;
-  {
-    std::unique_lock<std::mutex> lock(response_queue_mutex_);
-    if (response_queue_.empty()) {
-      return false;
-    } else {
-      res = std::move(response_queue_.front());
-      response_queue_.pop();
-    }
-  }
-
-  // Response judgment/conversion
-  if (res.result != tmc_robot_kinematics_model::kSuccess) {
-    CONSOLE_BRIDGE_logDebug("IK Failed %d", res.result);
-    return false;
-  }
-
-  solution_out = res.initial_state;
-  // You can think that params will not change while you are solving IK
-  if (OverwriteRobotState(solution_out,
-                          params->joint_names, params->base_names,
-                          res.joint_solution.position,
-                          tmc_manipulation_types::PoseSeq(params->base_names.size(), res.origin_to_base))) {
+    solution_out.joint_state = res;
+    solution_out.multi_dof_joint_state.poses[0] = origin_to_base_solution;
     CONSOLE_BRIDGE_logDebug("IK success");
     return true;
   } else {
-    CONSOLE_BRIDGE_logWarn("IK Failed");
+    CONSOLE_BRIDGE_logDebug("IK Failed %d", result);
     return false;
-  }
-}
-
-void SampleGoalGeneratorMultiThread::SolveIkThread(const std::string& solver_type,
-                                                   const std::string& robot_description) {
-  tmc_robot_kinematics_model::IKSolver::Ptr ik_solver;
-  {
-    std::unique_lock<std::mutex> lock(request_queue_mutex_);
-    ik_solver = ik_solver_loader_.createSharedInstance(solver_type);
-    ik_solver->set_robot_description(robot_description);
-  }
-
-  std::function<bool()> interrupt = [this]() -> bool{
-    std::unique_lock<std::mutex> lock(this->stop_ik_mutex_, std::try_to_lock);
-    if (lock) {
-      return this->stop_ik_;
-    } else {
-      return false;
-    }
-  };
-
-  Request req;
-  for (;;) {
-    {
-      std::unique_lock<std::mutex> lock(request_queue_mutex_);
-      condition_.wait(lock, [this]{ return this->stop_thread_ || !this->request_queue_.empty(); });
-      if (stop_thread_ && request_queue_.empty()) {
-        return;
-      }
-      req = std::move(request_queue_.front());
-      request_queue_.pop();
-    }
-    Eigen::Affine3d origin_to_hand_result;
-    Response res;
-    res.initial_state = req.initial_state;
-    {
-      std::unique_lock<std::mutex> lock(num_of_running_ik_mutex_);
-      ++num_of_running_ik_;
-    }
-    try {
-      res.result = ik_solver->Solve(
-          req.request, interrupt, res.joint_solution, res.origin_to_base, origin_to_hand_result);
-    } catch (std::exception& e) {
-      CONSOLE_BRIDGE_logWarn("%s", e.what());
-      res.result = tmc_robot_kinematics_model::kFail;
-    }
-    {
-      std::unique_lock<std::mutex> lock(response_queue_mutex_);
-      response_queue_.push(std::move(res));
-    }
-    {
-      std::unique_lock<std::mutex> lock(num_of_running_ik_mutex_);
-      --num_of_running_ik_;
-    }
   }
 }
 
@@ -369,7 +221,4 @@ void SampleGoalGeneratorMultiThread::SolveIkThread(const std::string& solver_typ
 #include "pluginlib/class_list_macros.hpp"
 
 PLUGINLIB_EXPORT_CLASS(tmc_simple_path_generator::SampleGoalGenerator,
-                       tmc_simple_path_generator::SampleGoalGeneratorBase);
-
-PLUGINLIB_EXPORT_CLASS(tmc_simple_path_generator::SampleGoalGeneratorMultiThread,
                        tmc_simple_path_generator::SampleGoalGeneratorBase);

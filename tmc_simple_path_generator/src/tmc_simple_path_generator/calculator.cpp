@@ -34,7 +34,7 @@ DAMAGE.
 
 namespace tmc_simple_path_generator {
 
-// Find the interpolation coefficient
+// Calculate interpolation coefficient
 std::vector<Eigen::VectorXd> CalcPoly(const Eigen::VectorXd& x0,
                                       const Eigen::VectorXd& v0,
                                       const Eigen::VectorXd& x1,
@@ -51,7 +51,7 @@ std::vector<Eigen::VectorXd> CalcPoly(const Eigen::VectorXd& x0,
   return a;
 }
 
-// Find the interpolation coefficient
+// Calculate interpolation coefficient
 std::vector<Eigen::VectorXd> CalcPolyViaPoint(const Eigen::VectorXd& x0,
                                               const Eigen::VectorXd& v0,
                                               const Eigen::VectorXd& x1,
@@ -69,17 +69,17 @@ std::vector<Eigen::VectorXd> CalcPolyViaPoint(const Eigen::VectorXd& x0,
   return a;
 }
 
-// Invite the location
+// Calculate position
 Eigen::VectorXd PolyViaPoint(const std::vector<Eigen::VectorXd>& a, double t) {
   return a[4] * t * t * t * t + a[3] * t * t * t + a[2] * t * t + a[1] * t + a[0];
 }
 
-// Find speed
+// Calculate velocity
 Eigen::VectorXd VelViaPoint(const std::vector<Eigen::VectorXd>& a, double t) {
   return 4 * a[4] * t * t * t + 3 * a[3] * t * t + 2 * a[2] * t + a[1];
 }
 
-// Find acceleration
+// Calculate acceleration
 Eigen::VectorXd AccViaPoint(const std::vector<Eigen::VectorXd>& a, double t) {
   return 12 * a[4] * t * t + 6 * a[3] * t + 2 * a[2];
 }

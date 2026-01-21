@@ -25,7 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
-/// @brief Parameters for track generation
+/// @brief Parameters for trajectory generation
 #include <tmc_simple_path_generator/sampling_parameters.hpp>
 
 #include <map>
@@ -57,7 +57,7 @@ SamplingParameters::SamplingParameters(const rclcpp::Node::SharedPtr& node) {
     RCLCPP_FATAL(node->get_logger(), "Parameter joint_names isn't set.");
     exit(EXIT_FAILURE);
   }
-  // If you set it to CONST, the MAP will not pass, so it is not a nonST
+  // Non-const because Map does not pass if const
   auto joint_weights_vec = tmc_utils::GetParameter<std::vector<double>>(node, "joint_weights", {});
   this->joint_weights.resize(joint_weights_vec.size());
   this->joint_weights = Eigen::Map<Eigen::VectorXd>(&joint_weights_vec[0], joint_weights_vec.size());
@@ -88,33 +88,37 @@ SamplingParameters::SamplingParameters(const rclcpp::Node::SharedPtr& node) {
     }
   }
 
-  int base_movement_type_int = tmc_utils::GetParameter(node, "base_movement_type", -1);
-  if (base_movement_type_int < 0) {
+  this->default_base_movement_type_ = tmc_utils::GetParameter(node, "base_movement_type", -1);
+  if (default_base_movement_type_ < 0) {
     RCLCPP_FATAL(node->get_logger(), "Parameter base_movement_type isn't set");
     exit(EXIT_FAILURE);
   }
-  this->base_movement_type = (tmc_manipulation_types::BaseMovementType)base_movement_type_int;
+  UpdateBaseMovementType(true);
+
+  const auto end_effectors = tmc_utils::GetParameter<std::vector<std::string>>(node, "end_effectors", {});
+  if (end_effectors.empty()) {
+    RCLCPP_FATAL(node->get_logger(), "Parameter end_effectors isn't set.");
+    exit(EXIT_FAILURE);
+  }
+  for (const auto& end_effector : end_effectors) {
+    const auto ik_joints_param_name = "ik_joints." + end_effector;
+    const auto ik_joints = tmc_utils::GetParameter<std::vector<std::string>>(node, ik_joints_param_name, {});
+    if (ik_joints.empty()) {
+      RCLCPP_FATAL(node->get_logger(), "Parameter %s isn't set.", ik_joints_param_name.c_str());
+      exit(EXIT_FAILURE);
+    }
+    this->ik_joints[end_effector] = ik_joints;
+  }
 }
 
-SamplingParameters::Ptr SamplingParameters::RemoveJoints(const std::vector<std::string>& ignore_joints) const {
-  auto new_params = std::make_shared<SamplingParameters>();
+void SamplingParameters::UpdateBaseMovementType(bool enable_base) {
+  this->enable_base = enable_base;
 
-  std::vector<uint32_t> used_joint_name_indices;
-  RemoveIgnored(this->joint_names, ignore_joints, new_params->joint_names, used_joint_name_indices);
-
-  new_params->joint_weights = ExtractValues(this->joint_weights, used_joint_name_indices);
-  new_params->joint_limit_upper = ExtractValues(this->joint_limit_upper, used_joint_name_indices);
-  new_params->joint_limit_lower = ExtractValues(this->joint_limit_lower, used_joint_name_indices);
-
-  RemoveIgnored(this->base_names, ignore_joints, new_params->base_names);
-  if (new_params->base_names.empty()) {
-    new_params->base_weights.resize(0);
-    new_params->base_movement_type = tmc_manipulation_types::kNone;
+  if (enable_base) {
+    this->base_movement_type = this->default_base_movement_type_;
   } else {
-    new_params->base_weights = this->base_weights;
-    new_params->base_movement_type = this->base_movement_type;
+    this->base_movement_type = tmc_manipulation_types::kNone;
   }
-  return new_params;
 }
 
 }  // namespace tmc_simple_path_generator

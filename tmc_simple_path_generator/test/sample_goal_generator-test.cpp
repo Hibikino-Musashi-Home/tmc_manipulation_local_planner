@@ -25,7 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
-/// @brief SampleGoalGenerator test
+/// @brief Test of SampleGoalGenerator
 
 #include <memory>
 #include <random>
@@ -82,7 +82,9 @@ tmc_simple_path_generator::SamplingParameters::Ptr GenerateSamplingParameters() 
   params->base_weights = Eigen::Vector3d(5.0, 5.0, 1.0);
   params->joint_limit_upper.resize(kJointNames.size(), 3.0);
   params->joint_limit_lower.resize(kJointNames.size(), -3.0);
-  params->base_movement_type = tmc_manipulation_types::kPlanar;
+  params->ik_joints[kEndFrame] = kJointNames;
+  params->SetDefaultBaseMovementType(tmc_manipulation_types::kPlanar);
+  params->UpdateBaseMovementType(true);
   return params;
 }
 
@@ -126,7 +128,7 @@ std::vector<tmc_robot_local_planner::ILinkConstraint::Ptr> GenerateLinkConstrain
   tsr.tsr_to_end = Eigen::Affine3d::Identity();
   tsr.min_bounds = tmc_manipulation_types::RegionValues::Zero();
   tsr.max_bounds = tmc_manipulation_types::RegionValues::Zero();
-  // I don't use Priority, so put 0 appropriately
+  // Since priority is not particularly used, just put 0
   return {std::make_shared<tmc_robot_local_planner::TsrLinkConstraint>(tsr, 0)};
 }
 
@@ -169,7 +171,7 @@ void SampleGoalGeneratorTest<SamplerType>::SetUp() {
   node_ = rclcpp::Node::make_shared("test_node");
   node_->declare_parameter<std::string>("robot_description_kinematics", robot_description);
   sample_goal_generator_ = std::make_shared<SamplerType>();
-  // Because it is a test, the SEED is fixed
+  // Since this is a test, the seed is fixed
   sample_goal_generator_->Initialize(node_, 0);
   SetIkInitialRange(node_, 0.5);
 }
@@ -179,14 +181,14 @@ std::vector<tmc_manipulation_types::RobotState> SampleGoalGeneratorTest<SamplerT
     const tmc_manipulation_types::RobotState& initial_state,
     const std::vector<tmc_robot_local_planner::IJointConstraint::Ptr>& constraints,
     uint32_t sampling_num) {
-  // AMD Ryzen 9 3950X was about 100ms even if Sampling_num was 100 ms, so it is said that at least 100ms will increase the sampling_num.
+  // On AMD Ryzen 9 3950X, even with sampling_num of 100, it took about 100ms, so let's increase by sampling_num for at least 100ms
   const auto end_time = std::chrono::system_clock::now() + std::chrono::duration<double>(0.1 + 0.02 * sampling_num);
   std::vector<tmc_manipulation_types::RobotState> result;
   while (result.size() < sampling_num && std::chrono::system_clock::now() < end_time) {
-    // SampleFromJointConstraints are prerequisite for Goal_state.
-    // It feels better to insert Initial_state clearly.
+    // SampleFromJointConstraints assumes that the current state is in goal_state
+    // Unsatisfactory specification, it feels better to explicitly include initial_state
     auto goal_state = initial_state;
-    // Since it is a prerequisite to be called multiple times, there is no success or failure once.
+    // Since it is assumed to be called multiple times, do not check the success or failure of each call
     if (sample_goal_generator_->SampleFromJointConstraints(constraints, goal_state)) {
       result.emplace_back(goal_state);
     }
@@ -243,7 +245,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, RandomSampleJointGoals) {
       ++count;
     }
   }
-  // Since it is a binary distribution of 100 samples, 3σ is 15
+  // Since it is a binomial distribution with a sample size of 100, 3σ is 15
   EXPECT_NEAR(count, 50, 15);
 }
 
@@ -286,9 +288,9 @@ TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsWithoutBase) {
   goal_state.joint_state.position[0] += 1.0;
   const auto link_constraints = GenerateLinkConstraints(this->robot_, goal_state);
 
-  const auto params = GenerateSamplingParameters();
-  auto removed_params = params->RemoveJoints({"world_joint"});
-  const auto results = this->Sample(initial_state, link_constraints, removed_params, 1);
+  auto params = GenerateSamplingParameters();
+  params->UpdateBaseMovementType(false);
+  const auto results = this->Sample(initial_state, link_constraints, params, 1);
 
   ASSERT_EQ(results.size(), 1);
   EXPECT_LT(link_constraints[0]->CalcDisplacement(CalculateEndFramePose(this->robot_, results[0])), kEpsilon);
@@ -298,25 +300,8 @@ TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsWithoutBase) {
   EXPECT_LT((base_pose_result - base_pose_initial).norm(), kEpsilon);
 }
 
-TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsWithIgnoreJoint) {
-  const auto initial_state = GenerateInitialState();
-
-  auto goal_state = initial_state;
-  goal_state.joint_state.position[1] += 1.0;
-  const auto link_constraints = GenerateLinkConstraints(this->robot_, goal_state);
-
-  const auto params = GenerateSamplingParameters();
-  auto removed_params = params->RemoveJoints({"joint1"});
-  const auto results = this->Sample(initial_state, link_constraints, removed_params, 1);
-
-  ASSERT_EQ(results.size(), 1);
-  EXPECT_LT(link_constraints[0]->CalcDisplacement(CalculateEndFramePose(this->robot_, results[0])), kEpsilon);
-
-  EXPECT_NEAR(results[0].joint_state.position[0], initial_state.joint_state.position[0], kEpsilon);
-}
-
 TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsFromRandomState) {
-  // Generate Link_constraint that satisfies the position/posture by the initial value and the initial value
+  // Generate initial values and link_constraint that satisfy the end-effector position/orientation with initial values
   const auto initial_state = GenerateInitialState();
   const auto link_constraints = GenerateLinkConstraints(this->robot_, initial_state);
   const auto params = GenerateSamplingParameters();
@@ -329,7 +314,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsFromRandomState) 
     ASSERT_EQ(results.size(), 1);
     EXPECT_LT(link_constraints[0]->CalcDisplacement(CalculateEndFramePose(this->robot_, results[0])), kEpsilon);
 
-    // Since the goal is filled with the initial value, the same as Initial_state
+    // Since the goal is satisfied with the initial values, it is the same as initial_state
     for (auto i = 0; i < initial_state.joint_state.name.size(); ++i) {
       const auto goal_position = GetJointPosition(results[0].joint_state, initial_state.joint_state.name[i]);
       EXPECT_DOUBLE_EQ(initial_state.joint_state.position[i], goal_position);
@@ -350,7 +335,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsFromRandomState) 
     ASSERT_EQ(results.size(), 1);
     EXPECT_LT(link_constraints[0]->CalcDisplacement(CalculateEndFramePose(this->robot_, results[0])), kEpsilon);
 
-    // You can add the bogie position, but it should be enough to judge only with the arm joint.
+    // It is okay to add up to the cart position, but judging only by arm joints should be sufficient
     double diff = 0.0;
     for (auto i = 0; i < initial_state.joint_state.name.size(); ++i) {
       const auto goal_position = GetJointPosition(results[0].joint_state, initial_state.joint_state.name[i]);
@@ -372,7 +357,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, JointNamesOrderMismatch) {
   ASSERT_EQ(results.size(), 1);
   EXPECT_LT(link_constraints[0]->CalcDisplacement(CalculateEndFramePose(this->robot_, results[0])), kEpsilon);
 
-  // Since the goal is filled with the initial value, the same as Initial_state
+  // Since the goal is satisfied with the initial values, it is the same as initial_state
   for (auto i = 0; i < initial_state.joint_state.name.size(); ++i) {
       const auto goal_position = GetJointPosition(results[0].joint_state, initial_state.joint_state.name[i]);
       EXPECT_DOUBLE_EQ(initial_state.joint_state.position[i], goal_position);
@@ -400,11 +385,11 @@ TYPED_TEST_P(SampleGoalGeneratorTest, TerminateImmediately) {
   this->sample_goal_generator_->Terminate();
   const auto end = std::chrono::system_clock::now();
 
-  // There is no particular basis for 5ms, the whole orbit candidate processing processing is at most 100ms, so the idea is that it is at least about 5ms.
+  // There is no particular basis for 5ms, since the entire trajectory candidate generation process is at most 100ms, maybe at least 5ms, is the thought
   EXPECT_LE(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(), 5);
 }
 
-// Arthrangular restraint empty
+// Joint constraints are empty
 TYPED_TEST_P(SampleGoalGeneratorTest, NoJointConstraints) {
   const auto initial_state = GenerateInitialState();
   const auto joint_constraints = GenerateJointConstraints();
@@ -413,7 +398,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, NoJointConstraints) {
   EXPECT_TRUE(results.empty());
 }
 
-// When sampling the goal posture from joint restraint, there is no name in the initial joint state
+// When sampling goal posture from joint constraints, there is no name for the initial joint state
 TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromJointConstraintsWithNoInitialJointNames) {
   auto initial_state = GenerateInitialState();
   initial_state.joint_state.name.clear();
@@ -423,7 +408,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromJointConstraintsWithNoInitialJoi
   EXPECT_TRUE(results.empty());
 }
 
-// When sampling the goal posture from joint restraint, there is no initial joint state.
+// When sampling goal posture from joint constraints, there is no position for the initial joint state
 TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromJointConstraintsWithNoInitialJointPositions) {
   auto initial_state = GenerateInitialState();
   initial_state.joint_state.position = Eigen::VectorXd();
@@ -433,7 +418,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromJointConstraintsWithNoInitialJoi
   EXPECT_TRUE(results.empty());
 }
 
-// Posture restraint is empty
+// Posture constraints are empty
 TYPED_TEST_P(SampleGoalGeneratorTest, NoLinkConstraints) {
   const auto initial_state = GenerateInitialState();
   const auto params = GenerateSamplingParameters();
@@ -442,7 +427,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, NoLinkConstraints) {
   EXPECT_TRUE(results.empty());
 }
 
-// When sampling the goal posture from the posture restraint, there is no name in the initial joint state
+// When sampling goal posture from posture constraints, there is no name for the initial joint state
 TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsWithNoInitialJointNames) {
   auto initial_state = GenerateInitialState();
   initial_state.joint_state.name.clear();
@@ -453,7 +438,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsWithNoInitialJoin
   EXPECT_TRUE(results.empty());
 }
 
-// When sampling the goal posture from the posture restraint, there is no initial joint status
+// When sampling goal posture from posture constraints, there is no position for the initial joint state
 TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsWithNoInitialJointPositions) {
   auto initial_state = GenerateInitialState();
   initial_state.joint_state.position = Eigen::VectorXd();
@@ -464,7 +449,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, SampleFromLinkConstraintsWithNoInitialJoin
   EXPECT_TRUE(results.empty());
 }
 
-// There is no terminal frame
+// Terminal frame does not exist
 TYPED_TEST_P(SampleGoalGeneratorTest, InvalidEndFrame) {
   auto initial_state = GenerateInitialState();
 
@@ -485,7 +470,7 @@ TYPED_TEST_P(SampleGoalGeneratorTest, InvalidEndFrame) {
   EXPECT_TRUE(results.empty());
 }
 
-// Reverse athletic is not required
+// Inverse kinematics cannot be solved
 TYPED_TEST_P(SampleGoalGeneratorTest, IKCannotSolve) {
   const auto initial_state = GenerateInitialState();
   const auto link_constraints = GenerateLinkConstraints(this->robot_);
@@ -502,7 +487,6 @@ REGISTER_TYPED_TEST_SUITE_P(SampleGoalGeneratorTest,
                             SampleFromLinkConstraints,
                             RandomSampleLinkGoals,
                             SampleFromLinkConstraintsWithoutBase,
-                            SampleFromLinkConstraintsWithIgnoreJoint,
                             SampleFromLinkConstraintsFromRandomState,
                             JointNamesOrderMismatch,
                             TerminateImmediately,
@@ -517,17 +501,12 @@ REGISTER_TYPED_TEST_SUITE_P(SampleGoalGeneratorTest,
 
 INSTANTIATE_TYPED_TEST_SUITE_P(SampleGoalGeneratorSingleThreadTest,
                                SampleGoalGeneratorTest, SampleGoalGenerator);
-INSTANTIATE_TYPED_TEST_SUITE_P(SampleGoalGeneratorMultiThreadTest,
-                               SampleGoalGeneratorTest, SampleGoalGeneratorMultiThread);
 
 TEST(SampleGoalGeneratorTest, CreateInstance) {
   pluginlib::ClassLoader<SampleGoalGeneratorBase> loader("tmc_simple_path_generator",
                                                          "tmc_simple_path_generator::SampleGoalGeneratorBase");
   {
     const auto sampler = loader.createSharedInstance("tmc_simple_path_generator/SampleGoalGenerator");
-  }
-  {
-    const auto sampler = loader.createSharedInstance("tmc_simple_path_generator/SampleGoalGeneratorMultiThread");
   }
 }
 
@@ -558,12 +537,6 @@ uint32_t Sample() {
   }
   return count;
 }
-
-TEST(SampleGoalGeneratorTest, CalculationSpeed) {
-  // Even if you think about various overhead, if the number of threads is 8, it should be able to be generated.
-  EXPECT_GT(Sample<SampleGoalGeneratorMultiThread>(), 2 * Sample<SampleGoalGenerator>());
-}
-
 
 }  // namespace tmc_simple_path_generator
 

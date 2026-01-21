@@ -48,7 +48,7 @@ bool RobotTrajectoryLinkUpdater::getLinkTransforms(
     Ogre::Vector3& collision_position,
     Ogre::Quaternion& collision_orientation) const {
   try {
-    // TODO(Takeshita) Transform
+    // TODO(Takeshita) fixed frameを用いた座標変換が必要だと思われる，odomにしておけばひとまずいけるが
     const auto pose = model_->GetObjectTransform(link_name);
 
     visual_position.x = pose.translation().x();
@@ -65,7 +65,7 @@ bool RobotTrajectoryLinkUpdater::getLinkTransforms(
 
     return true;
   } catch (const std::exception& ex) {
-    // TODO(Takeshita) Logger
+    // TODO(Takeshita) loggerを持たせてerrorで発行する
     std::cerr << ex.what() << std::endl;
     return false;
   }
@@ -128,14 +128,14 @@ GeneratedTrajectoriesDisplay::~GeneratedTrajectoriesDisplay() {
 void GeneratedTrajectoriesDisplay::onInitialize() {
   RTDClass::onInitialize();
 
-  // TODO(Takeshita) Parameter
+  // TODO(Takeshita) robotの数はパラメータにしたほうがいい，ただ，動的にするのは結構実装が面倒かも
   constexpr uint32_t kModelNum = 10;
   for (auto i = 0u; i < kModelNum; ++i) {
     robots_.emplace_back(std::make_unique<rviz_default_plugins::robot::Robot>(
         scene_node_, context_, "Robot: " + getName().toStdString() + " " + std::to_string(i), this));
   }
 
-  // TODO(Takeshita) Use robot_description topic
+  // TODO(Takeshita) robot_descriptionをトピックで取れるようにする，これだとrviz2にパラメータを渡す必要が出てくる
   auto rviz_ros_node_ = context_->getRosNodeAbstraction().lock();
   const auto robot_description = tmc_utils::GetParameter<std::string>(
       rviz_ros_node_->get_raw_node(), "robot_description", "");
@@ -210,7 +210,7 @@ void GeneratedTrajectoriesDisplay::processMessage(moveit_msgs::msg::DisplayTraje
   if (msg->trajectory.size() <= robots_.size()) {
     for (auto i = 0u; i < robots_.size(); ++i) {
       if (i < msg->trajectory.size()) {
-        // TODO(Takeshita) Empty trajectory
+        // TODO(Takeshita) pointsが空のケースの処理をいれたほうが安全
         link_updaters_[i].resetTrajectory(msg->trajectory[i]);
         max_trajetory_duration_ = std::max(
             max_trajetory_duration_,
@@ -220,7 +220,7 @@ void GeneratedTrajectoriesDisplay::processMessage(moveit_msgs::msg::DisplayTraje
       }
     }
   } else {
-    // TODO(Takeshita) Select rule
+    // TODO(Takeshita) こちらでも前から順を選べると良い
     std::random_device seed_gen;
     std::mt19937 mt(seed_gen());
     std::vector<moveit_msgs::msg::RobotTrajectory> result;

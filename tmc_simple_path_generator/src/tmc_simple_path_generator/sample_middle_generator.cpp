@@ -35,9 +35,8 @@ DAMAGE.
 
 namespace tmc_simple_path_generator {
 
-void PlanerMiddleStateGenerator::Initialize(const rclcpp::Node::SharedPtr& node,
-                                            const SamplingParameters::Ptr& params) {
-  sampling_params_ = params;
+void PlanerMiddleStateGenerator::Initialize(const rclcpp::Node::SharedPtr& node) {
+  engine_.seed(std::random_device()());
 
   middle_state_base_position_range_ = std::make_shared<tmc_utils::DynamicParameter<double>>(
       node, "middle_state_base_position_range", 0.5);
@@ -60,15 +59,15 @@ std::optional<tmc_manipulation_types::RobotState> PlanerMiddleStateGenerator::Co
   if (!ComputeMiddleState(initial_state, goal_state, middle_state)) {
     return std::nullopt;
   }
-  // I want to reflect the joints that are not used here, so use Params given by arguments.
+  // I want to reflect the joints that are not used here, so I use the params given as arguments
   if (!ReplaceWithUniformRandomJointPositions(middle_state, params->joint_names, params->joint_limit_upper,
-                                              params->joint_limit_lower, middle_state)) {
+                                              params->joint_limit_lower, engine_, middle_state)) {
     return std::nullopt;
   }
-  if (!params->base_names.empty()) {
+  if (params->enable_base) {
     if (!AddUniformRandomBasePoseOffset(middle_state, params->base_names,
                                         middle_state_base_position_range_->value(),
-                                        middle_state_base_rotation_range_->value(), middle_state)) {
+                                        middle_state_base_rotation_range_->value(), engine_, middle_state)) {
       return std::nullopt;
     }
   }
@@ -79,19 +78,15 @@ bool PlanerMiddleStateGenerator::ComputeMiddleState(
     const tmc_manipulation_types::RobotState& initial_state,
     const tmc_manipulation_types::RobotState& goal_state,
     tmc_manipulation_types::RobotState& middle_state_out) {
-  Eigen::VectorXd init_joint_positions;
-  tmc_manipulation_types::PoseSeq init_base_poses;
-  // Here, we want to target all joints, so use sampling_params_
-  if (!ExtractFromRobotState(initial_state, sampling_params_->joint_names, sampling_params_->base_names,
-                             init_joint_positions, init_base_poses)) {
+  if (initial_state.joint_state.position.size() != goal_state.joint_state.position.size() ||
+      initial_state.multi_dof_joint_state.poses.empty() ||
+      goal_state.multi_dof_joint_state.poses.empty()) {
     return false;
   }
-  Eigen::VectorXd end_joint_positions;
-  tmc_manipulation_types::PoseSeq end_base_poses;
-  if (!ExtractFromRobotState(goal_state, sampling_params_->joint_names, sampling_params_->base_names,
-                             end_joint_positions, end_base_poses)) {
-    return false;
-  }
+  Eigen::VectorXd init_joint_positions = initial_state.joint_state.position;
+  tmc_manipulation_types::PoseSeq init_base_poses = initial_state.multi_dof_joint_state.poses;
+  Eigen::VectorXd end_joint_positions = goal_state.joint_state.position;
+  tmc_manipulation_types::PoseSeq end_base_poses = goal_state.multi_dof_joint_state.poses;
   auto middle_joint_positions = (init_joint_positions + end_joint_positions) / 2.0;
 
   auto init_2d_pose = tmc_robot_local_planner_utils::Get2DPose(init_base_poses[0]);
@@ -103,9 +98,11 @@ bool PlanerMiddleStateGenerator::ComputeMiddleState(
                                  (init_2d_pose[1] + end_2d_pose[1]) / 2.0,
                                  middle_yaw);
   auto middle_base_pose = tmc_robot_local_planner_utils::GetTransform(middle_2d_pose);
+
   middle_state_out = initial_state;
-  return OverwriteRobotState(middle_state_out, sampling_params_->joint_names, sampling_params_->base_names,
-                             middle_joint_positions, {middle_base_pose});
+  middle_state_out.joint_state.position = middle_joint_positions;
+  middle_state_out.multi_dof_joint_state.poses = {middle_base_pose};
+  return true;
 }
 }  // namespace tmc_simple_path_generator
 

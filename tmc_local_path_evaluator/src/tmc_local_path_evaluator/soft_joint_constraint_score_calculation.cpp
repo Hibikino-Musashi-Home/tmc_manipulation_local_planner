@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief Soft Joint Constraint Score Calculation Class
 
 #include <tmc_local_path_evaluator/soft_joint_constraint_score_calculation.hpp>
 
@@ -42,8 +43,9 @@ boost::optional<double> SoftJointConstraintScoreCalculation::CalculateImpl(
     return boost::none;
   }
 
-  // Soft_joint_constraints says Path Constraints (Soft), but the original implementation was Goal.
-  // Furthermore, in the current naming regularly, Soft_joint_constraints seems better to mean Goal.
+  // soft_joint_constraints is labeled as Path constraints(Soft), but the original implementation was Goal
+  // Furthermore, according to the current naming conventions, soft_joint_constraints seems to better represent Goal
+  // TODO(Takeshita) コメントの書き換え
   const auto state = ExtractLastState(trajectory);
 
   double score = 0.0;

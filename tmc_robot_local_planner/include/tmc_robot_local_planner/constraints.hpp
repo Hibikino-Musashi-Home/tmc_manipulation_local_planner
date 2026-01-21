@@ -25,6 +25,9 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @file     constraints.hpp
+/// @brief    interface of trajectory constraints
+/// @author   Koji Terada, Yuta Watanabe
 
 #pragma once
 
@@ -43,6 +46,13 @@ struct LinearConstraint {
   double distance;
 };
 
+struct LinearConstraintWithPose {
+  std::string end_frame_id;
+  Eigen::Affine3d reference;
+  Eigen::Vector3d axis;
+  double distance;
+};
+
 /// \brief Constraints of wholebody trajectory interface
 struct Constraints {
   // Goal constraints
@@ -55,6 +65,7 @@ struct Constraints {
 
   // Path constraints(Hard)
   LinearConstraint goal_relative_linear_constraint;
+  LinearConstraintWithPose initial_motion_linear_constraint;
   std::vector<ILinkConstraint::Ptr> hard_path_link_constraints;
 
   // Path constraints(Soft)
