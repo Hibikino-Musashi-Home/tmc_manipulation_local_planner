@@ -58,34 +58,21 @@ Eigen::Affine3d RotationFirstRegionValuesToPose(double x, double y, double z, do
 
 namespace tmc_robot_local_planner_visualization {
 
-class TsrMarkerFactory {
- public:
-  TsrMarkerFactory() {}
-
-  std::vector<visualization_msgs::msg::Marker> GenerateMarkers(
-      const std::vector<tmc_planning_msgs::msg::TsrLinkConstraint>& constraints,
-      int32_t start_id,
-      const rclcpp::Time& stamp,
-      const MarkerParameters& params);
-
- protected:
-  virtual std::optional<visualization_msgs::msg::Marker> GenerateOriginMarker(
-      const Eigen::Affine3d& origin_to_end __attribute__((unused)),
-      const rclcpp::Time& stamp __attribute__((unused)),
-      const std::string& ref_frame_id __attribute__((unused)),
-      int32_t id __attribute__((unused)),
-      const MarkerParameters& params __attribute__((unused))) const {
-    return std::nullopt;
-  }
+struct PoseStamped {
+  std::string frame_id;
+  rclcpp::Time stamp;
+  Eigen::Affine3d pose;
 };
+using TsrMarkersAndPoses = std::pair<std::vector<visualization_msgs::msg::Marker>, std::vector<PoseStamped>>;
 
-std::vector<visualization_msgs::msg::Marker> TsrMarkerFactory::GenerateMarkers(
+TsrMarkersAndPoses GenerateTsrMarkers(
     const std::vector<tmc_planning_msgs::msg::TsrLinkConstraint>& constraints,
     int32_t start_id,
     const rclcpp::Time& stamp,
     const MarkerParameters& params) {
-  // When converted to TMC_ROBOT_LOCAL_PLANNER type, min/max_bounds etc. is hidden in Private, so it is processed as MSG.
+  // When converted to the type of tmc_robot_local_planner, min/max_bounds, etc. are hidden as private, so process it as a msg
   std::vector<visualization_msgs::msg::Marker> markers;
+  std::vector<PoseStamped> poses;
   for (const auto& constraint : constraints) {
     if (constraint.header.frame_id.empty()) {
       continue;
@@ -120,7 +107,7 @@ std::vector<visualization_msgs::msg::Marker> TsrMarkerFactory::GenerateMarkers(
       } else {
         const auto min_value = std::max(-M_PI, constraint.tsr.min_bounds[i]);
         const auto max_value = std::min(M_PI, constraint.tsr.max_bounds[i]);
-        // I just need to be divided into a lot, so I don't think about rounding.
+        // It's fine as long as it's somewhat divided, so I haven't properly considered rounding
         const auto step = (max_value - min_value) / (std::round(distance / kRotationBoundDistanceThreshold) + 1.0);
         std::vector<double> candidates;
         for (auto value = min_value; value < max_value; value += step) {
@@ -148,11 +135,7 @@ std::vector<visualization_msgs::msg::Marker> TsrMarkerFactory::GenerateMarkers(
                 }
                 markers.emplace_back(GeneratePoseMarkers(
                     origin_to_end, stamp, constraint.header.frame_id, start_id + markers.size(), params));
-                const auto origin_marker = GenerateOriginMarker(
-                    origin_to_end, stamp, constraint.header.frame_id, start_id + markers.size(), params);
-                if (origin_marker) {
-                  markers.push_back(origin_marker.value());
-                }
+                poses.emplace_back(PoseStamped{constraint.header.frame_id, stamp, origin_to_end});
               }
             }
           }
@@ -160,37 +143,21 @@ std::vector<visualization_msgs::msg::Marker> TsrMarkerFactory::GenerateMarkers(
       }
     }
   }
-  return markers;
+  return {markers, poses};
 }
 
-
-class GoalTsrMarkerFactory : public TsrMarkerFactory {
- public:
-  GoalTsrMarkerFactory() {}
-
- protected:
-  std::optional<visualization_msgs::msg::Marker> GenerateOriginMarker(
-      const Eigen::Affine3d& origin_to_end,
-      const rclcpp::Time& stamp,
-      const std::string& ref_frame_id,
-      int32_t id,
-      const MarkerParameters& params) const override;
-};
-
-std::optional<visualization_msgs::msg::Marker> GoalTsrMarkerFactory::GenerateOriginMarker(
-    const Eigen::Affine3d& origin_to_end,
-    const rclcpp::Time& stamp,
-    const std::string& ref_frame_id,
+visualization_msgs::msg::Marker GenerateOriginMarker(
+    const PoseStamped& pose_stamped,
     int32_t id,
-    const MarkerParameters& params) const {
+    const MarkerParameters& params) {
   visualization_msgs::msg::Marker cube;
-  cube.header.stamp = stamp;
-  cube.header.frame_id = ref_frame_id;
+  cube.header.stamp = pose_stamped.stamp;
+  cube.header.frame_id = pose_stamped.frame_id;
   cube.ns = params.ns;
   cube.id = id;
   cube.type = visualization_msgs::msg::Marker::CUBE;
   cube.action = visualization_msgs::msg::Marker::ADD;
-  cube.pose = tf2::toMsg(origin_to_end);
+  cube.pose = tf2::toMsg(pose_stamped.pose);
   cube.scale.x = params.line_width * 2.0;
   cube.scale.y = params.line_width * 2.0;
   cube.scale.z = params.line_width * 2.0;
@@ -200,6 +167,81 @@ std::optional<visualization_msgs::msg::Marker> GoalTsrMarkerFactory::GenerateOri
   cube.color.b = 1.0;
   cube.color.a = params.alpha;
   return cube;
+}
+
+bool ValidateAxis(const geometry_msgs::msg::Vector3& axis) {
+  return std::abs(axis.x) + std::abs(axis.y) + std::abs(axis.z) > std::numeric_limits<double>::min();
+}
+
+visualization_msgs::msg::Marker GenerateGoalRelativeMarker(
+    const PoseStamped& pose_stamped,
+    const tmc_planning_msgs::msg::LinearConstraint& constraint,
+    int32_t id,
+    const MarkerParameters& params) {
+  visualization_msgs::msg::Marker arrow;
+  arrow.header.stamp = pose_stamped.stamp;
+  arrow.header.frame_id = pose_stamped.frame_id;
+  arrow.ns = params.ns;
+  arrow.id = id;
+  arrow.type = visualization_msgs::msg::Marker::ARROW;
+  arrow.action = visualization_msgs::msg::Marker::ADD;
+
+  const auto origin_to_end = pose_stamped.pose;
+  const auto end_to_start_axis = Eigen::Vector3d(constraint.axis.x, constraint.axis.y, constraint.axis.z);
+  const auto end_to_start_axis_normalized = end_to_start_axis.normalized();
+  const auto origin_to_start = origin_to_end * Eigen::Translation3d(
+      end_to_start_axis_normalized * constraint.distance);
+  arrow.points.resize(2);
+  arrow.points[0].x = origin_to_start.translation().x();
+  arrow.points[0].y = origin_to_start.translation().y();
+  arrow.points[0].z = origin_to_start.translation().z();
+  arrow.points[1].x = pose_stamped.pose.translation().x();
+  arrow.points[1].y = pose_stamped.pose.translation().y();
+  arrow.points[1].z = pose_stamped.pose.translation().z();
+
+  arrow.scale.x = params.line_width;
+  arrow.scale.y = params.line_width * 2.0;
+  arrow.lifetime.sec = params.life_time;
+  arrow.color.r = 1.0;
+  arrow.color.g = 1.0;
+  arrow.color.b = 0.0;
+  arrow.color.a = params.alpha;
+  return arrow;
+}
+
+visualization_msgs::msg::Marker GenerateInitialMotionMarker(
+    const tmc_planning_msgs::msg::LinearConstraintWithPose& constraint,
+    const rclcpp::Time& stamp,
+    int32_t id,
+    const MarkerParameters& params) {
+  visualization_msgs::msg::Marker arrow;
+  arrow.header.stamp = stamp;
+  arrow.header.frame_id = constraint.reference.header.frame_id;
+  arrow.ns = params.ns;
+  arrow.id = id;
+  arrow.type = visualization_msgs::msg::Marker::ARROW;
+  arrow.action = visualization_msgs::msg::Marker::ADD;
+
+  Eigen::Affine3d origin_to_start;
+  tf2::fromMsg(constraint.reference.pose, origin_to_start);
+  const auto start_to_end_axis = Eigen::Vector3d(constraint.axis.x, constraint.axis.y, constraint.axis.z);
+  const auto start_to_end_axis_normalized = start_to_end_axis.normalized();
+  const auto origin_to_end = origin_to_start * Eigen::Translation3d(
+      start_to_end_axis_normalized * constraint.distance);
+  arrow.points.resize(2);
+  arrow.points[0] = constraint.reference.pose.position;
+  arrow.points[1].x = origin_to_end.translation().x();
+  arrow.points[1].y = origin_to_end.translation().y();
+  arrow.points[1].z = origin_to_end.translation().z();
+
+  arrow.scale.x = params.line_width;
+  arrow.scale.y = params.line_width * 2.0;
+  arrow.lifetime.sec = params.life_time;
+  arrow.color.r = 0.0;
+  arrow.color.g = 1.0;
+  arrow.color.b = 1.0;
+  arrow.color.a = params.alpha;
+  return arrow;
 }
 
 
@@ -218,9 +260,6 @@ class LinkConstraintsVisualization : public rclcpp::Node {
   void RobotLocalGoalCallback(const tmc_planning_msgs::msg::RobotLocalGoal::SharedPtr msg);
 
   void Visualize(const tmc_planning_msgs::msg::Constraints& constraints_msg);
-
-  GoalTsrMarkerFactory goal_tsr_marker_factory_;
-  TsrMarkerFactory path_tsr_marker_factory_;
 
   tmc_utils::DynamicParameter<double>::Ptr line_length_hard_;
   tmc_utils::DynamicParameter<double>::Ptr line_width_hard_;
@@ -278,9 +317,26 @@ void LinkConstraintsVisualization::Visualize(const tmc_planning_msgs::msg::Const
   hard_goal_params.line_width = line_width_hard_->value();
   hard_goal_params.alpha = alpha_hard_->value();
   hard_goal_params.life_time = life_time_->value();
-  const auto hard_goal_markers = goal_tsr_marker_factory_.GenerateMarkers(
+
+  const auto [hard_goal_markers, hard_goal_poses] = GenerateTsrMarkers(
       constraints_msg.hard_link_constraints, markers.markers.size(), stamp, hard_goal_params);
   markers.markers.insert(markers.markers.end(), hard_goal_markers.begin(), hard_goal_markers.end());
+
+  for (const auto& pose_stamped : hard_goal_poses) {
+    markers.markers.push_back(GenerateOriginMarker(pose_stamped, markers.markers.size(), hard_goal_params));
+  }
+  if (!constraints_msg.goal_relative_linear_constraint.end_frame_id.empty() &&
+      ValidateAxis(constraints_msg.goal_relative_linear_constraint.axis)) {
+    for (const auto& pose_stamped : hard_goal_poses) {
+      markers.markers.push_back(GenerateGoalRelativeMarker(
+          pose_stamped, constraints_msg.goal_relative_linear_constraint, markers.markers.size(), hard_goal_params));
+    }
+  }
+  if (!constraints_msg.initial_motion_linear_constraint.end_frame_id.empty() &&
+      ValidateAxis(constraints_msg.initial_motion_linear_constraint.axis)) {
+    markers.markers.push_back(GenerateInitialMotionMarker(
+        constraints_msg.initial_motion_linear_constraint, stamp, markers.markers.size(), hard_goal_params));
+  }
 
   MarkerParameters soft_goal_params;
   soft_goal_params.ns = "soft_link_constraints";
@@ -288,9 +344,14 @@ void LinkConstraintsVisualization::Visualize(const tmc_planning_msgs::msg::Const
   soft_goal_params.line_width = line_width_soft_->value();
   soft_goal_params.alpha = alpha_soft_->value();
   soft_goal_params.life_time = life_time_->value();
-  const auto soft_goal_markers = goal_tsr_marker_factory_.GenerateMarkers(
+
+  const auto [soft_goal_markers, soft_goal_poses] = GenerateTsrMarkers(
       constraints_msg.soft_link_constraints, markers.markers.size(), stamp, soft_goal_params);
   markers.markers.insert(markers.markers.end(), soft_goal_markers.begin(), soft_goal_markers.end());
+
+  for (const auto& pose_stamped : soft_goal_poses) {
+    markers.markers.push_back(GenerateOriginMarker(pose_stamped, markers.markers.size(), soft_goal_params));
+  }
 
   MarkerParameters hard_path_params;
   hard_path_params.ns = "hard_path_link_constraints";
@@ -298,7 +359,8 @@ void LinkConstraintsVisualization::Visualize(const tmc_planning_msgs::msg::Const
   hard_path_params.line_width = line_width_hard_->value();
   hard_path_params.alpha = alpha_hard_->value();
   hard_path_params.life_time = life_time_->value();
-  const auto hard_path_markers = path_tsr_marker_factory_.GenerateMarkers(
+
+  const auto [hard_path_markers, hard_path_poses] = GenerateTsrMarkers(
       constraints_msg.hard_path_link_constraints, markers.markers.size(), stamp, hard_path_params);
   markers.markers.insert(markers.markers.end(), hard_path_markers.begin(), hard_path_markers.end());
 

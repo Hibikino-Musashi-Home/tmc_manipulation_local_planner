@@ -45,54 +45,92 @@ DAMAGE.
 
 namespace tmc_robot_local_planner_utils {
 
-/// @brief Return 3D (x, y, theta)
+/// @brief Returns 3d(x, y, theta)
+/// @param transform Affine coordinates
+/// @return 3d vector
 Eigen::Vector3d Get2DPose(const Eigen::Affine3d& transform);
 
-/// @brief Return the conversion line
+/// @brief Returns the transformation matrix
+/// @param 3d(x, y, theta) vector
+/// @return transform Affine coordinates
 Eigen::Affine3d GetTransform(const Eigen::Vector3d& pose2d);
 
-/// @brief Return Linear.x Linear.y Angular.z
+/// @brief Returns linear.x linear.y angular.z
+/// @param twist Velocity of linear and angular components
+/// @return 3d vector
 Eigen::Vector3d Get2DTwist(const tmc_manipulation_types::Twist& twist);
 
-/// @brief Return twist
+/// @brief Returns Twist
+/// @param 3d(linear.x linear.y angular.z) vector
+/// @return twist Velocity of linear and angular components
 tmc_manipulation_types::Twist GetTwist(const Eigen::Vector3d& twist2d);
 
-/// @brief Change each Constraint
+/// @brief Transforms each constraint
+/// @param origin_frame Reference frame
+/// @param timeout tf timeout [sec]
+/// @param buffer tf2 buffer
+/// @param msg Message type constraint
+/// @return Function success determination
 bool TransformConstraints(const std::string& origin_frame,
                           const double timeout,
                           const tf2_ros::Buffer& buffer,
                           tmc_planning_msgs::msg::Constraints& msg);
 
-/// @brief Convert the ROS message type Constraint into a non -ROS type
+/// @brief Converts ROS message type constraint to non-ROS type
+/// @param msg ROS message type constraint
+/// @param constraints Conversion result
 void ConvertConstraints(const tmc_planning_msgs::msg::Constraints& msg,
                         tmc_robot_local_planner::Constraints& constraints);
 
-/// @brief Convert Link Constraint coordinates
+/// @brief Transforms link constraint
+/// @param origin_frame Origin
+/// @param timeout tf timeout [sec]
+/// @param buffer tf2 buffer
+/// @param msg Message type link constraint
+/// @return Function success determination
 bool TransformTSRConstraint(const std::string& origin_frame,
                             const double timeout,
                             const tf2_ros::Buffer& buffer,
                             tmc_planning_msgs::msg::TsrLinkConstraint& msg);
 
-/// @brief Convert the ROS message type Link Constraint into a non -ROS type
+/// @brief Converts ROS message type link constraint to non-ROS type
+/// @param msg ROS message type constraint
+/// @param const_out Conversion result
 void ConvertLinkConstraintMsgToLinkConstraint(
     const tmc_planning_msgs::msg::TsrLinkConstraint& msg,
     tmc_robot_local_planner::ILinkConstraint::Ptr& constraint_out);
 
-/// @brief Coordinates Joint Constraint
+/// @brief Transforms joint constraint
+/// @param origin_frame Origin
+/// @param timeout tf timeout [sec]
+/// @param buffer tf2 buffer
+/// @param msg Message type joint constraint
+/// @return Function success determination
 bool TransformJointConstraint(const std::string& origin_frame,
                               const double timeout,
                               const tf2_ros::Buffer& buffer,
                               tmc_planning_msgs::msg::RangeJointConstraint& msg);
 
-/// @brief Convert the ROS message type Joint Constraint into a non -ROS type
+/// @brief Converts ROS message type joint constraint to non-ROS type
+/// @param msg ROS message type constraint
+/// @param const_out Conversion result
 void ConvertJointConstraintMsgToJointConstraint(
     const tmc_planning_msgs::msg::RangeJointConstraint& msg,
     tmc_robot_local_planner::IJointConstraint::Ptr& constraint_out);
 
-/// @brief Convert the ROS message type Linear Constraint into a non -ROS type
+/// @brief Converts ROS message type linear constraint to non-ROS type
+/// @param msg ROS message type constraint
+/// @param const_out Conversion result
 void ConvertLinearConstraintMsgToLinearConstraint(
     const tmc_planning_msgs::msg::LinearConstraint& msg,
     tmc_robot_local_planner::LinearConstraint& constraint_out);
+
+/// @brief Converts ROS message type linear constraint to non-ROS type
+/// @param msg ROS message type constraint
+/// @param const_out Conversion result
+void ConvertLinearConstraintMsgToLinearConstraint(
+    const tmc_planning_msgs::msg::LinearConstraintWithPose& msg,
+    tmc_robot_local_planner::LinearConstraintWithPose& constraint_out);
 
 }  // namespace tmc_robot_local_planner_utils
 #endif  // TMC_ROBOT_LOCAL_PLANNER_UTILS_CONVERTER_HPP_

@@ -78,7 +78,9 @@ tmc_simple_path_generator::SamplingParameters::Ptr GenerateSamplingParameters() 
   params->base_weights = Eigen::Vector3d(5.0, 5.0, 1.0);
   params->joint_limit_upper.resize(kJointNames.size(), 3.0);
   params->joint_limit_lower.resize(kJointNames.size(), -3.0);
-  params->base_movement_type = tmc_manipulation_types::kPlanar;
+  params->ik_joints[kEndFrame] = kJointNames;
+  params->SetDefaultBaseMovementType(tmc_manipulation_types::kPlanar);
+  params->UpdateBaseMovementType(true);
   return params;
 }
 
@@ -127,7 +129,7 @@ TEST_F(GoalRelativeLinearConstraintTest, SampleLinearPath) {
       linear_constraint, initial_state, goal_state, GenerateSamplingParameters());
   ASSERT_TRUE(linear_path.has_value());
 
-  // It can be +1 with a computational error of the number
+  // It is possible to become +1 due to decimal calculation errors
   const uint32_t expected_size = static_cast<uint32_t>(linear_constraint.distance / kLinearStep);
   EXPECT_GE(linear_path.value().size(), expected_size);
   EXPECT_LE(linear_path.value().size(), expected_size + 1);
@@ -138,7 +140,7 @@ TEST_F(GoalRelativeLinearConstraintTest, SampleLinearPath) {
   for (const auto& way_point : linear_path.value()) {
     const auto origin_to_way_point = CalculateEndFramePose(way_point);
     const auto displacement = origin_to_way_point.translation() - origin_to_goal.translation();
-    // There is a width of the convergence judgment of IK, so you cannot expect a strict agreement
+    // Since there is a range for IK convergence judgment, exact matching cannot be expected
     EXPECT_NEAR(displacement.normalized().dot(linear_constraint.axis), 1.0, kEpsilon);
 
     const auto distance = displacement.norm();
@@ -146,7 +148,7 @@ TEST_F(GoalRelativeLinearConstraintTest, SampleLinearPath) {
     EXPECT_LE(distance, linear_constraint.distance + kEpsilon);
 
     const auto diff = prev_distance - distance;
-    // Almost zero or almost Klinearstep
+    // Either almost zero or almost kLinearStep
     EXPECT_TRUE(std::abs(diff) < kEpsilon || std::abs(diff - kLinearStep) < kEpsilon);
 
     prev_distance = distance;
@@ -166,7 +168,7 @@ TEST_F(GoalRelativeLinearConstraintTest, InitialStateOnLinearConstraint) {
       linear_constraint, initial_state, goal_state, GenerateSamplingParameters());
   ASSERT_TRUE(linear_path.has_value());
 
-  // Since the initial state is almost on a straight line restriction, the distance is up to 0.04
+  // Since the initial state is almost on the linear constraint, up to the point where the distance is 0.04
   EXPECT_EQ(linear_path.value().size(), 4);
 
   const auto origin_to_goal = CalculateEndFramePose(goal_state);
@@ -199,7 +201,7 @@ TEST_F(GoalRelativeLinearConstraintTest, NoIKSolutions) {
 
   const auto linear_path = path_constraints_->SampleLinearPath(
       linear_constraint, initial_state, goal_state, GenerateSamplingParameters());
-  // If the IK cannot be solved, it will be a failure because the restraint condition cannot be met.
+  // If IK cannot be solved, the constraint conditions cannot be satisfied, so it is considered a failure
   EXPECT_FALSE(linear_path.has_value());
 }
 
@@ -214,7 +216,7 @@ TEST_F(GoalRelativeLinearConstraintTest, LinearConstraintNotUsed) {
 
   const auto linear_path = path_constraints_->SampleLinearPath(
       linear_constraint, initial_state, goal_state, GenerateSamplingParameters());
-  // End_frame_id is an exceptional success
+  // An empty end_frame_id is exceptionally considered a success
   ASSERT_TRUE(linear_path.has_value());
   EXPECT_TRUE(linear_path.value().empty());
 }
@@ -230,7 +232,7 @@ TEST_F(GoalRelativeLinearConstraintTest, InvalidEndFrame) {
 
   const auto linear_path = path_constraints_->SampleLinearPath(
       linear_constraint, initial_state, goal_state, GenerateSamplingParameters());
-  // If End_frame_id does not exist, it will fail
+  // If end_frame_id does not exist, it is considered a failure
   EXPECT_FALSE(linear_path.has_value());
 }
 
@@ -245,7 +247,7 @@ TEST_F(GoalRelativeLinearConstraintTest, ZeroAxis) {
 
   const auto linear_path = path_constraints_->SampleLinearPath(
       linear_constraint, initial_state, goal_state, GenerateSamplingParameters());
-  // AXIS is an abnormal input, so it will be a failure.
+  // A zero axis is considered abnormal input, so it is considered a failure
   EXPECT_FALSE(linear_path.has_value());
 }
 
@@ -260,7 +262,7 @@ TEST_F(GoalRelativeLinearConstraintTest, ZeroDistance) {
 
   const auto linear_path = path_constraints_->SampleLinearPath(
       linear_constraint, initial_state, goal_state, GenerateSamplingParameters());
-  // The distance is zero, so it is a failure because it is an abnormal input.
+  // A zero distance is considered abnormal input, so it is considered a failure
   EXPECT_FALSE(linear_path.has_value());
 }
 
@@ -275,7 +277,7 @@ TEST_F(GoalRelativeLinearConstraintTest, NegativeDistance) {
 
   const auto linear_path = path_constraints_->SampleLinearPath(
       linear_constraint, initial_state, goal_state, GenerateSamplingParameters());
-  // The distance is negative, but it fails as an unusual input
+  // A negative distance is also considered abnormal input and will be failed
   EXPECT_FALSE(linear_path.has_value());
 }
 

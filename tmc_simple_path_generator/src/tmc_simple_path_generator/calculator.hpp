@@ -35,45 +35,45 @@ DAMAGE.
 
 namespace tmc_simple_path_generator {
 
-/// @brief Find the interpolation coefficient
-/// @param x0 Initial state position
-/// @param v0 Initial state speed
-/// @param x1 Goal state position
+/// @brief Calculate interpolation coefficients
+/// @param x0 Initial position
+/// @param v0 Initial velocity
+/// @param x1 Goal position
 /// @param te End time
-/// @return Interpolation coefficient
+/// @return Interpolation coefficients
 std::vector<Eigen::VectorXd> CalcPoly(const Eigen::VectorXd& x0,
                                       const Eigen::VectorXd& v0,
                                       const Eigen::VectorXd& x1,
                                       double te);
 
-/// @brief Find the interpolation coefficient
-/// @param X0 Initial state position
-/// @param v0 Initial state speed
-/// @param x1 Goal state position
-/// @param xA Intermediate state position
+/// @brief Calculate interpolation coefficients
+/// @param x0 Initial position
+/// @param v0 Initial velocity
+/// @param x1 Goal position
+/// @param xa Intermediate position
 /// @param te End time
-/// @return Interpolation coefficient
+/// @return Interpolation coefficients
 std::vector<Eigen::VectorXd> CalcPolyViaPoint(const Eigen::VectorXd& x0,
                                               const Eigen::VectorXd& v0,
                                               const Eigen::VectorXd& x1,
                                               const Eigen::VectorXd& xa,
                                               double te);
 
-/// @brief Invite the location
-/// @param a interpolation coefficient list
-/// @param t up time
-/// @return Location
+/// @brief Calculate position
+/// @param a List of interpolation coefficients
+/// @param t Elapsed time
+/// @return Position
 Eigen::VectorXd PolyViaPoint(const std::vector<Eigen::VectorXd>& a, double t);
 
-/// @brief Find speed
-/// @param a interpolation coefficient list
-/// @param t up time
-/// @return speed
+/// @brief Calculate velocity
+/// @param a List of interpolation coefficients
+/// @param t Elapsed time
+/// @return Velocity
 Eigen::VectorXd VelViaPoint(const std::vector<Eigen::VectorXd>& a, double t);
 
-/// @brief Find acceleration
-/// @param a interpolation coefficient list
-/// @param t up time
+/// @brief Calculate acceleration
+/// @param a List of interpolation coefficients
+/// @param t Elapsed time
 /// @return Acceleration
 Eigen::VectorXd AccViaPoint(const std::vector<Eigen::VectorXd>& a, double t);
 }  // namespace tmc_simple_path_generator

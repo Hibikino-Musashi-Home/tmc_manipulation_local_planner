@@ -25,6 +25,9 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @file     range_joint_constraint.hpp
+/// @brief    interface of range_joint constraints
+/// @author   Koji Terada, Yuta Watanabe
 
 #pragma once
 

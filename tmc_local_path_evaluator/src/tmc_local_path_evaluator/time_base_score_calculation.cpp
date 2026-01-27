@@ -32,18 +32,22 @@ namespace tmc_local_path_evaluator {
 boost::optional<double> TimeBaseScoreCalculation::CalculateImpl(
     const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
     const tmc_robot_local_planner::Constraints& constraint) {
-  if (trajectory.joint_trajectory.points.size() != trajectory.multi_dof_joint_trajectory.points.size()) {
-    return boost::none;
-  }
   if (trajectory.joint_trajectory.points.empty()) {
-    return boost::none;
+    if (trajectory.multi_dof_joint_trajectory.points.empty()) {
+      return boost::none;
+    }
+    return trajectory.multi_dof_joint_trajectory.points.back().time_from_start;
+  } else {
+    if (trajectory.joint_trajectory.points.size() != trajectory.multi_dof_joint_trajectory.points.size()) {
+      return boost::none;
+    }
+    // Although it is generally not advisable to use == for double type comparison, due to the nature of time_from_start, it should be expected that the values are exactly the same.
+    if (trajectory.joint_trajectory.points.back().time_from_start !=
+            trajectory.multi_dof_joint_trajectory.points.back().time_from_start) {
+      return boost::none;
+    }
+    return trajectory.joint_trajectory.points.back().time_from_start;
   }
-  // Double type == judgment is not good, but due to the nature of Time_from_start, it should be expected that the same value is strictly included.
-  if (trajectory.joint_trajectory.points.back().time_from_start !=
-          trajectory.multi_dof_joint_trajectory.points.back().time_from_start) {
-    return boost::none;
-  }
-  return trajectory.joint_trajectory.points.back().time_from_start;
 }
 
 }  // namespace tmc_local_path_evaluator

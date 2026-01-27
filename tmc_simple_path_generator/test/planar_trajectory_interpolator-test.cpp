@@ -25,7 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
-/// @brief PLANARTRAJECTORYINTERPOLATOR test
+/// @brief Test of PlanarTrajectoryInterpolator
 
 #include <boost/range/adaptor/indexed.hpp>
 
@@ -44,7 +44,7 @@ const std::vector<std::string> kJointNames = {"arm", "hand", "shoulder"};
 const std::vector<std::string> kBaseNames = {"world_joint"};
 constexpr double kEpsilon = 1.0e-6;
 
-// Extract Positions from TimeDJointTrajectory
+// Extract positions from TimedJointTrajectory
 bool ExtractJointPositions(
     const tmc_manipulation_types::TimedJointTrajectory& trajectory,
     const tmc_manipulation_types::NameSeq& joint_names,
@@ -70,7 +70,7 @@ bool ExtractJointPositions(
   return true;
 }
 
-// Extract Velocities from TimeDJOINTTRAJECTORY
+// Extract velocities from TimedJointTrajectory
 bool ExtractJointVelocities(
     const tmc_manipulation_types::TimedJointTrajectory& trajectory,
     const tmc_manipulation_types::NameSeq& joint_names,
@@ -96,7 +96,7 @@ bool ExtractJointVelocities(
   return true;
 }
 
-// Extract the position x, y, yaw from TimeDMULTIDOLTIINTTRAJECTORY
+// Extract position x, y, yaw from TimedMultiDOFJointTrajectory
 bool ExtractBase2DPoses(
     const tmc_manipulation_types::TimedMultiDOFJointTrajectory& trajectory,
     const std::string joint_name,
@@ -117,7 +117,7 @@ bool ExtractBase2DPoses(
   return true;
 }
 
-// Extract the speed x, y, yaw from TimeDMULTIDOLTIDOFJECTORY
+// Extract velocity x, y, yaw from TimedMultiDOFJointTrajectory
 bool ExtractBase2DTwist(
     const tmc_manipulation_types::TimedMultiDOFJointTrajectory& trajectory,
     const std::string joint_name,
@@ -138,9 +138,9 @@ bool ExtractBase2DTwist(
   return true;
 }
 
-// Counting a change in increase and decrease, assuming that you start from zero
+// Count changes in increase/decrease, assuming starting from zero
 uint32_t CountDirectionSwitch(const Eigen::VectorXd& positions) {
-  // Explore the first point that is not zero
+  // Search for the first non-zero point
   double last_diff = 0.0;
   uint32_t start_index = positions.size();
   for (uint32_t i = 0; i < positions.size(); ++i) {
@@ -151,14 +151,14 @@ uint32_t CountDirectionSwitch(const Eigen::VectorXd& positions) {
     }
   }
   if (start_index == positions.size()) {
-    // There is no change because it is zero all the time
+    // No change as it remains zero
     return 0;
   }
   uint32_t result = 0;
   for (uint32_t i = start_index + 1; i < positions.size(); ++i) {
     auto diff = positions[i] - positions[i - 1];
     if (fabs(diff) < std::numeric_limits<double>::min()) {
-      // If you are zero, make a decision
+      // Reserve judgment if zero
       continue;
     }
     if (last_diff * diff < 0.0) {
@@ -206,6 +206,14 @@ tmc_manipulation_types::RobotState GenerateGoalState() {
   return GenerateRobotState(1.0);
 }
 
+tmc_manipulation_types::RobotState RemoveFirstJoint(const tmc_manipulation_types::RobotState& state) {
+  tmc_manipulation_types::RobotState new_state = state;
+  new_state.joint_state.name.erase(new_state.joint_state.name.begin());
+  new_state.joint_state.position = new_state.joint_state.position.tail(new_state.joint_state.position.size() - 1);
+  new_state.joint_state.velocity = new_state.joint_state.velocity.tail(new_state.joint_state.velocity.size() - 1);
+  return new_state;
+}
+
 }  // namespace
 
 namespace tmc_simple_path_generator {
@@ -233,7 +241,7 @@ void PlanarTrajectoryInterpolatorTest::SetUp() {
   planar_->Initialize(node_, GenerateTestParameters());
 }
 
-// If there is no initial speed
+// When there is no initial velocity
 TEST_F(PlanarTrajectoryInterpolatorTest, InterpolateSimpleWithoutInitialVelocities) {
   const auto initial_state = GenerateInitialState();
   const auto goal_state = GenerateGoalState();
@@ -275,7 +283,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, InterpolateSimpleWithoutInitialVelociti
   }
 }
 
-// If you have a initial speed
+// When there is an initial velocity
 TEST_F(PlanarTrajectoryInterpolatorTest, InterpolateSimpleWithInitialVelocities) {
   auto initial_state = GenerateInitialState();
   initial_state.joint_state.velocity << 0.1, 0.1, 0.0;
@@ -301,7 +309,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, InterpolateSimpleWithInitialVelocities)
 
   std::vector<Eigen::VectorXd> base_positions;
   ASSERT_TRUE(ExtractBase2DPoses(trajectory.multi_dof_joint_trajectory, kBaseNames[0], base_positions));
-  // The direction of the bogie Y changes only once
+  // The direction of the cart in the y-direction changes only once
   EXPECT_EQ(0, CountDirectionSwitch(base_positions[0]));
   EXPECT_EQ(1, CountDirectionSwitch(base_positions[1]));
   EXPECT_EQ(0, CountDirectionSwitch(base_positions[2]));
@@ -321,18 +329,18 @@ TEST_F(PlanarTrajectoryInterpolatorTest, InterpolateSimpleWithInitialVelocities)
   }
 }
 
-// Unauthorized Normalized_velocity
+// Invalid normalized_velocity
 TEST_F(PlanarTrajectoryInterpolatorTest, InvalidNormalizedVelocity) {
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), -0.1, trajectory));
 }
 
-// Track interpolation using intermediate posture
+// Trajectory interpolation using intermediate posture
 TEST_F(PlanarTrajectoryInterpolatorTest, InterpolateWithMiddleState) {
   const auto initial_state = GenerateInitialState();
   const auto goal_state = GenerateGoalState();
 
-  // If the outside of the INITIAL and GOAL is an intermediate posture, a switching will occur.
+  // If the outside of initial and goal is an intermediate posture, switching of increase/decrease occurs
   std::vector<std::tuple<tmc_manipulation_types::RobotState, uint32_t>> middle_state_and_switch_count = {
       {GenerateRobotState(-1.0), 1}, {GenerateRobotState(0.5), 0}, {GenerateRobotState(2.0), 1}
   };
@@ -382,7 +390,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, InterpolateWithMiddleState) {
   }
 }
 
-// The time_from_start in the orbit generated is changing according to the trajectory length, or a case with orbital scoring or less
+// Check if time_from_start of the generated trajectory changes according to the trajectory length, case where the number of trajectory points is below the maximum
 TEST_F(PlanarTrajectoryInterpolatorTest, TimeFromStartsShortTrajectory) {
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
   ASSERT_TRUE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), 1.75, trajectory));
@@ -405,14 +413,14 @@ TEST_F(PlanarTrajectoryInterpolatorTest, TimeFromStartsShortTrajectory) {
 
   // The first point is 0.0
   EXPECT_NEAR(0.0, time_intervals[0], kEpsilon);
-  // If it is less than the maximum value, the time is 0.1, less than 0.1 to fill the last.
+  // If below the maximum, time step is 0.1, less than 0.1 only to fill the last
   for (uint32_t i = 1; i < time_intervals.size() - 1; ++i) {
     EXPECT_NEAR(0.1, time_intervals[i], kEpsilon);
   }
   EXPECT_GT(0.1, time_intervals.back());
 }
 
-// Whether the Time_from_start in the orbit generated is changing according to the trajectory length, or a case where the number of orbital points exceeds the maximum value.
+// Check if time_from_start of the generated trajectory changes according to the trajectory length, case where the number of trajectory points exceeds the maximum
 TEST_F(PlanarTrajectoryInterpolatorTest, TimeFromStartsLongTrajectory) {
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
   ASSERT_TRUE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), 1.0, trajectory));
@@ -433,7 +441,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, TimeFromStartsLongTrajectory) {
 
   // The first point is 0.0
   EXPECT_NEAR(0.0, time_intervals[0], kEpsilon);
-  // Half is 0.1 chopped, and the rest is larger than 0.1, which is 0.1 where the orbital length matches.
+  // Half with step 0.1, the rest with equal intervals larger than 0.1 to match the trajectory length
   for (uint32_t i = 1; i < 15; ++i) {
     EXPECT_NEAR(0.1, time_intervals[i], kEpsilon);
   }
@@ -442,7 +450,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, TimeFromStartsLongTrajectory) {
   }
 }
 
-// There is no name in the initial joint state
+// No name for initial joint state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialJointNames) {
   auto initial_state = GenerateInitialState();
   initial_state.joint_state.name.clear();
@@ -452,7 +460,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialJointNames) {
   EXPECT_FALSE(planar_->Interpolate(initial_state, GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no initial joint state
+// No position for initial joint state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialJointPositions) {
   auto initial_state = GenerateInitialState();
   initial_state.joint_state.position = Eigen::VectorXd();
@@ -462,7 +470,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialJointPositions) {
   EXPECT_FALSE(planar_->Interpolate(initial_state, GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no speed in the initial joint state
+// No velocity for initial joint state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialJointVelocities) {
   auto initial_state = GenerateInitialState();
   initial_state.joint_state.velocity = Eigen::VectorXd();
@@ -472,7 +480,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialJointVelocities) {
   EXPECT_FALSE(planar_->Interpolate(initial_state, GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no name in the initial bogie state
+// No name for initial cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialBaseJointNames) {
   auto initial_state = GenerateInitialState();
   initial_state.multi_dof_joint_state.names.clear();
@@ -482,7 +490,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialBaseJointNames) {
   EXPECT_FALSE(planar_->Interpolate(initial_state, GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no posture in the initial bogie condition
+// No posture for initial cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialBaseJointPoses) {
   auto initial_state = GenerateInitialState();
   initial_state.multi_dof_joint_state.poses.clear();
@@ -492,7 +500,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialBaseJointPoses) {
   EXPECT_FALSE(planar_->Interpolate(initial_state, GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no speed in the initial bogie state
+// No velocity for initial cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialBaseTwists) {
   auto initial_state = GenerateInitialState();
   initial_state.multi_dof_joint_state.poses.clear();
@@ -502,7 +510,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoInitialBaseTwists) {
   EXPECT_FALSE(planar_->Interpolate(initial_state, GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no name in the goal joint state
+// No name for goal joint state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalJointNames) {
   auto goal_state = GenerateGoalState();
   goal_state.joint_state.name.clear();
@@ -512,7 +520,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalJointNames) {
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), goal_state, 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no position in the goal joint state
+// No position for goal joint state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalJointPositions) {
   auto goal_state = GenerateGoalState();
   goal_state.joint_state.position = Eigen::VectorXd();
@@ -522,7 +530,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalJointPositions) {
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), goal_state, 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no speed in the goal joint, but it does not have to be
+// No velocity for goal joint state, but it's okay
 TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalJointVelocities) {
   auto goal_state = GenerateGoalState();
   goal_state.joint_state.velocity = Eigen::VectorXd();
@@ -532,7 +540,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalJointVelocities) {
   EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), goal_state, 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no name in the goal trolle
+// No name for goal cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalBaseJointNames) {
   auto goal_state = GenerateGoalState();
   goal_state.multi_dof_joint_state.names.clear();
@@ -542,7 +550,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalBaseJointNames) {
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), goal_state, 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no posture in the goal bogie condition
+// No posture for goal cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalBaseJointPoses) {
   auto goal_state = GenerateGoalState();
   goal_state.multi_dof_joint_state.poses.clear();
@@ -552,7 +560,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalBaseJointPoses) {
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), goal_state, 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no speed in the goal trolleys, but it doesn't have to be
+// No velocity for goal cart state, but it's okay
 TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalBaseTwists) {
   auto goal_state = GenerateGoalState();
   goal_state.multi_dof_joint_state.twist.clear();
@@ -562,7 +570,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoGoalBaseTwists) {
   EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), goal_state, 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no name in the intermediate joint state
+// No name for intermediate joint state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleJointNames) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.joint_state.name.clear();
@@ -571,7 +579,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleJointNames) {
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), 0.5, middle_state, trajectory));
 }
 
-// There is no position in the intermediate joint state
+// No position for intermediate joint state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleJointPositions) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.joint_state.position = Eigen::VectorXd();
@@ -580,7 +588,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleJointPositions) {
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), 0.5, middle_state, trajectory));
 }
 
-// There is no speed in the intermediate joint, but it does not have to be
+// No velocity for intermediate joint state, but it's okay
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleJointVelocities) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.joint_state.velocity = Eigen::VectorXd();
@@ -589,7 +597,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleJointVelocities) {
   EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), 0.5, middle_state, trajectory));
 }
 
-// There is no name in the middle bogie state
+// No name for intermediate cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleBaseJointNames) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.multi_dof_joint_state.names.clear();
@@ -598,7 +606,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleBaseJointNames) {
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), 0.5, middle_state, trajectory));
 }
 
-// There is no posture in the middle bogie state
+// No posture for intermediate cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleBaseJointPoses) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.multi_dof_joint_state.poses.clear();
@@ -607,7 +615,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleBaseJointPoses) {
   EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), 0.5, middle_state, trajectory));
 }
 
-// There is no speed in the intermediate bogie, but it does not have to be
+// No velocity for intermediate cart state, but it's okay
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleBaseTwists) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.multi_dof_joint_state.twist.clear();
@@ -616,7 +624,7 @@ TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddleBaseTwists) {
   EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), GenerateGoalState(), 0.5, middle_state, trajectory));
 }
 
-// Since then, EXPECTED and Actual have turned upside down, but it is troublesome to fix it, so I will not mess with it.
+// From here on, expected and actual are reversed, but it's troublesome to fix, so leave it as is
 
 class PlanarTrajectoryInterpolatorPlainTest : public ::testing::Test {
  protected:
@@ -642,7 +650,7 @@ void ValidatePlainInterpolation(const tmc_manipulation_types::TimedRobotTrajecto
   EXPECT_EQ(trajectory.joint_trajectory.points[0].positions, initial_state.joint_state.position);
   EXPECT_EQ(trajectory.joint_trajectory.points[0].velocities, initial_state.joint_state.velocity);
   for (auto i = 0; i < path_states.size(); ++i) {
-    // Goal's Velocity is meaningless (not used), so don't check it
+    // The velocity of the goal is meaningless (unused) value, so do not check
     EXPECT_EQ(trajectory.joint_trajectory.points[i + 1].positions, path_states[i].joint_state.position);
     EXPECT_EQ(trajectory.joint_trajectory.points[i + 1].time_from_start, time_from_starts[i]);
   }
@@ -659,7 +667,7 @@ void ValidatePlainInterpolation(const tmc_manipulation_types::TimedRobotTrajecto
   }
 }
 
-// Orbit conversion without intermediate point, intermediate route
+// Trajectory conversion without intermediate points or intermediate paths
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, NoMiddleStateNoMiddlePath) {
   const auto initial_state = GenerateInitialState();
   const auto goal_state = GenerateGoalState();
@@ -669,28 +677,77 @@ TEST_F(PlanarTrajectoryInterpolatorPlainTest, NoMiddleStateNoMiddlePath) {
   ValidatePlainInterpolation(trajectory, initial_state, {goal_state}, {5.0});
 }
 
-// There is no intermediate point, the intermediate route is the orbit conversion of the sky
+// Check if weight is obtained from joint name
+TEST_F(PlanarTrajectoryInterpolatorPlainTest, JointWeightFromName) {
+  const auto initial_state = RemoveFirstJoint(GenerateInitialState());
+  const auto goal_state = RemoveFirstJoint(GenerateGoalState());
+
+  tmc_manipulation_types::TimedRobotTrajectory trajectory;
+  ASSERT_TRUE(planar_->Interpolate(initial_state, goal_state, 0.5, trajectory));
+
+  EXPECT_EQ(trajectory.joint_trajectory.joint_names, initial_state.joint_state.name);
+  ASSERT_EQ(trajectory.joint_trajectory.points.size(), 2);
+  EXPECT_EQ(trajectory.joint_trajectory.points[0].positions, initial_state.joint_state.position);
+  EXPECT_EQ(trajectory.joint_trajectory.points[0].velocities, initial_state.joint_state.velocity);
+  EXPECT_EQ(trajectory.joint_trajectory.points[1].positions, goal_state.joint_state.position);
+  EXPECT_EQ(trajectory.joint_trajectory.points[1].time_from_start, 5.0);
+}
+
+// Trajectory conversion for cart only
+TEST_F(PlanarTrajectoryInterpolatorPlainTest, BaseOnlyTrajectory) {
+  auto initial_state = GenerateInitialState();
+  initial_state.joint_state.name.clear();
+  initial_state.joint_state.position = Eigen::VectorXd();
+  initial_state.joint_state.velocity = Eigen::VectorXd();
+  auto goal_state = GenerateGoalState();
+  goal_state.joint_state.name.clear();
+  goal_state.joint_state.position = Eigen::VectorXd();
+  goal_state.joint_state.velocity = Eigen::VectorXd();
+
+  tmc_manipulation_types::TimedRobotTrajectory trajectory;
+  ASSERT_TRUE(planar_->Interpolate(initial_state, goal_state, 0.5, trajectory));
+
+  EXPECT_TRUE(trajectory.joint_trajectory.joint_names.empty());
+  EXPECT_TRUE(trajectory.joint_trajectory.points.empty());
+  EXPECT_EQ(trajectory.multi_dof_joint_trajectory.joint_names, kBaseNames);
+}
+
+// Trajectory conversion without intermediate points, with empty intermediate path
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, NoMiddleStateEmptyMiddlePath) {
   const auto initial_state = GenerateInitialState();
   const auto goal_state = GenerateGoalState();
 
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  ASSERT_TRUE(planar_->Interpolate(initial_state, {}, goal_state, 0.5, trajectory));
+  ASSERT_TRUE(planar_->Interpolate(initial_state, {}, {}, goal_state, 0.5, trajectory));
   ValidatePlainInterpolation(trajectory, initial_state, {goal_state}, {5.0});
 }
 
-// Orbit conversion with intermediate points and intermediate routes
+// Trajectory conversion without intermediate points, with intermediate path
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, NoMiddleStateWithMiddlePath) {
   const auto initial_state = GenerateInitialState();
   const auto goal_state = GenerateGoalState();
   const auto middle_state = GenerateRobotState(2.0);
 
-  tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  ASSERT_TRUE(planar_->Interpolate(initial_state, {middle_state}, goal_state, 0.5, trajectory));
-  ValidatePlainInterpolation(trajectory, initial_state, {middle_state, goal_state}, {10.0, 15.0});
+  {
+    tmc_manipulation_types::TimedRobotTrajectory trajectory;
+    ASSERT_TRUE(planar_->Interpolate(initial_state, {}, {middle_state}, goal_state, 0.5, trajectory));
+    ValidatePlainInterpolation(trajectory, initial_state, {middle_state, goal_state}, {10.0, 15.0});
+  }
+  {
+    tmc_manipulation_types::TimedRobotTrajectory trajectory;
+    ASSERT_TRUE(planar_->Interpolate(initial_state, {middle_state}, {}, goal_state, 0.5, trajectory));
+    ValidatePlainInterpolation(trajectory, initial_state, {middle_state, goal_state}, {10.0, 15.0});
+  }
+  {
+    const auto middle_state_0 = GenerateRobotState(-1.0);
+    tmc_manipulation_types::TimedRobotTrajectory trajectory;
+    ASSERT_TRUE(planar_->Interpolate(initial_state, {middle_state_0}, {middle_state}, goal_state, 0.5, trajectory));
+    ValidatePlainInterpolation(trajectory, initial_state,
+                               {middle_state_0, middle_state, goal_state}, {5.0, 20.0, 25.0});
+  }
 }
 
-// There is an intermediate point, orbit conversion without an intermediate route
+// Trajectory conversion with intermediate points, without intermediate path
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, WithMiddleStateNoMiddlePath) {
   const auto initial_state = GenerateInitialState();
   const auto goal_state = GenerateGoalState();
@@ -701,94 +758,143 @@ TEST_F(PlanarTrajectoryInterpolatorPlainTest, WithMiddleStateNoMiddlePath) {
   ValidatePlainInterpolation(trajectory, initial_state, {middle_state, goal_state}, {10.0, 15.0});
 }
 
-// There is an intermediate point, the intermediate route is the orbit conversion of the sky
+// Trajectory conversion with intermediate points, with empty intermediate path
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, WithMiddleStateEmptyMiddlePath) {
   const auto initial_state = GenerateInitialState();
   const auto goal_state = GenerateGoalState();
   const auto middle_state = GenerateRobotState(2.0);
 
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  ASSERT_TRUE(planar_->Interpolate(initial_state, {}, goal_state, 0.5, middle_state, trajectory));
+  ASSERT_TRUE(planar_->Interpolate(initial_state, {}, {}, goal_state, 0.5, middle_state, trajectory));
   ValidatePlainInterpolation(trajectory, initial_state, {middle_state, goal_state}, {10.0, 15.0});
 }
 
-// Orbit conversion with intermediate points and intermediate routes
+// Trajectory conversion with intermediate points and intermediate path
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, WithMiddleStateAndMiddlePath) {
   const auto initial_state = GenerateInitialState();
   const auto goal_state = GenerateGoalState();
   const auto middle_state = GenerateRobotState(2.0);
   const auto middle_path_state = GenerateRobotState(3.0);
 
-  tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  ASSERT_TRUE(planar_->Interpolate(initial_state, {middle_path_state}, goal_state, 0.5, middle_state, trajectory));
-  ValidatePlainInterpolation(trajectory, initial_state, {middle_state, middle_path_state, goal_state},
-                             {10.0, 15.0, 25.0});
+  {
+    tmc_manipulation_types::TimedRobotTrajectory trajectory;
+    ASSERT_TRUE(planar_->Interpolate(initial_state, {}, {middle_path_state},
+                                     goal_state, 0.5, middle_state, trajectory));
+    ValidatePlainInterpolation(trajectory, initial_state, {middle_state, middle_path_state, goal_state},
+                               {10.0, 15.0, 25.0});
+  }
+  {
+    tmc_manipulation_types::TimedRobotTrajectory trajectory;
+    ASSERT_TRUE(planar_->Interpolate(initial_state, {middle_path_state}, {},
+                                     goal_state, 0.5, middle_state, trajectory));
+    ValidatePlainInterpolation(trajectory, initial_state, {middle_path_state, middle_state, goal_state},
+                               {15.0, 20.0, 25.0});
+  }
+  {
+    const auto middle_path_state_0 = GenerateRobotState(-1.0);
+    tmc_manipulation_types::TimedRobotTrajectory trajectory;
+    ASSERT_TRUE(planar_->Interpolate(initial_state, {middle_path_state_0}, {middle_path_state},
+                                     goal_state, 0.5, middle_state, trajectory));
+    ValidatePlainInterpolation(trajectory, initial_state,
+                               {middle_path_state_0, middle_state, middle_path_state, goal_state},
+                               {5.0, 20.0, 25.0, 35.0});
+  }
 }
 
-// There is no name in the intermediate route joint state
+// No name for intermediate path joint state
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, NoMiddlePathJointNames) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.joint_state.name.clear();
 
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5, trajectory));
-  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5,
-                                    GenerateRobotState(2.0), trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                    GenerateGoalState(), 0.5, trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                    GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                    GenerateGoalState(), 0.5, trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                    GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no position in the intermediate route joints
+// No position for intermediate path joint state
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, NoMiddlePathJointPositions) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.joint_state.position = Eigen::VectorXd();
 
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5, trajectory));
-  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5,
-                                    GenerateRobotState(2.0), trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                    GenerateGoalState(), 0.5, trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                    GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                    GenerateGoalState(), 0.5, trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                    GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no speed in the intermediate route joint, but it is not necessary
+// No velocity for intermediate path joint state, but it's okay
 TEST_F(PlanarTrajectoryInterpolatorPlainTest, NoMiddlePathJointVelocities) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.joint_state.velocity = Eigen::VectorXd();
 
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5, trajectory));
-  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5,
-                                   GenerateRobotState(2.0), trajectory));
+  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                   GenerateGoalState(), 0.5, trajectory));
+  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                   GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
+  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                   GenerateGoalState(), 0.5, trajectory));
+  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                   GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no name in the intermediate route trolle
+// No name for intermediate path cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddlePathBaseJointNames) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.multi_dof_joint_state.names.clear();
 
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5, trajectory));
-  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5,
-                                    GenerateRobotState(2.0), trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                    GenerateGoalState(), 0.5, trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                    GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                    GenerateGoalState(), 0.5, trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                    GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no posture in the middle route trolle
+// No posture for intermediate path cart state
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddlePathBaseJointPoses) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.multi_dof_joint_state.poses.clear();
 
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5, trajectory));
-  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5,
-                                    GenerateRobotState(2.0), trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                    GenerateGoalState(), 0.5, trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                    GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                    GenerateGoalState(), 0.5, trajectory));
+  EXPECT_FALSE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                    GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
-// There is no speed in the middle route trolle, but it does not have to be
+// No velocity for intermediate path cart state, but it's okay
 TEST_F(PlanarTrajectoryInterpolatorTest, NoMiddlePathBaseTwists) {
   auto middle_state = GenerateRobotState(2.0);
   middle_state.multi_dof_joint_state.twist.clear();
 
   tmc_manipulation_types::TimedRobotTrajectory trajectory;
-  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5, trajectory));
-  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {middle_state}, GenerateGoalState(), 0.5,
-                                   GenerateRobotState(2.0), trajectory));
+  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                   GenerateGoalState(), 0.5, trajectory));
+  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {}, {middle_state},
+                                   GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
+  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                   GenerateGoalState(), 0.5, trajectory));
+  EXPECT_TRUE(planar_->Interpolate(GenerateInitialState(), {middle_state}, {},
+                                   GenerateGoalState(), 0.5, GenerateRobotState(2.0), trajectory));
 }
 
 }  // namespace tmc_simple_path_generator

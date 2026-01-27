@@ -34,7 +34,7 @@ DAMAGE.
 namespace tmc_robot_local_planner_utils {
 
 ArrivalRateCalculator::ArrivalRateCalculator() : is_new_constraints_(false) {
-  // TODO(Takeshita) Use TF
+  // TODO(Takeshita) TFでやる
 }
 
 boost::optional<double> ArrivalRateCalculator::CalculateArrivalRate(

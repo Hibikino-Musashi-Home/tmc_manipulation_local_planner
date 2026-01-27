@@ -44,9 +44,9 @@ DAMAGE.
 
 namespace {
 
-// Speed ​​is required only for Initial
+// Speed is required only for initial
 bool CheckRobotInitialState(const tmc_manipulation_types::RobotState& robot_state) {
-  if (robot_state.joint_state.name.size() == 0 || robot_state.multi_dof_joint_state.names.size() == 0) {
+  if (robot_state.joint_state.name.size() == 0 && robot_state.multi_dof_joint_state.names.size() == 0) {
     return false;
   }
   if (robot_state.joint_state.name.size() != robot_state.joint_state.position.size() ||
@@ -61,7 +61,7 @@ bool CheckRobotInitialState(const tmc_manipulation_types::RobotState& robot_stat
 }
 
 bool CheckRobotState(const tmc_manipulation_types::RobotState& robot_state) {
-  if (robot_state.joint_state.name.size() == 0 || robot_state.multi_dof_joint_state.names.size() == 0) {
+  if (robot_state.joint_state.name.size() == 0 && robot_state.multi_dof_joint_state.names.size() == 0) {
     return false;
   }
   if (robot_state.joint_state.name.size() != robot_state.joint_state.position.size()) {
@@ -82,28 +82,29 @@ void PlanarTrajectoryInterpolatorBase::Initialize(const rclcpp::Node::SharedPtr&
   sampling_params_ = params;
 }
 
-// Orbit an interpolation that satisfies the restraint in the shortest time
+// Trajectory interpolation that satisfies constraints in the shortest time
 bool PlanarTrajectoryInterpolatorBase::Interpolate(
     const tmc_manipulation_types::RobotState& initial_state,
     const tmc_manipulation_types::RobotState& goal_state,
     double normalized_vel,
     tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) {
-  return Interpolate(initial_state, {}, goal_state, normalized_vel, trajectory_out);
+  return Interpolate(initial_state, {}, {}, goal_state, normalized_vel, trajectory_out);
 }
 
-// Calonia interpolation to configure via points
+// Trajectory interpolation that sets waypoints
 bool PlanarTrajectoryInterpolatorBase::Interpolate(
     const tmc_manipulation_types::RobotState& initial_state,
     const tmc_manipulation_types::RobotState& goal_state,
     double normalized_vel,
     const tmc_manipulation_types::RobotState& random_middle_state,
     tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) {
-  return Interpolate(initial_state, {}, goal_state, normalized_vel, random_middle_state, trajectory_out);
+  return Interpolate(initial_state, {}, {}, goal_state, normalized_vel, random_middle_state, trajectory_out);
 }
 
-// Orbit an interpolation that satisfies the restraint in the shortest time
+// Trajectory interpolation that satisfies constraints in the shortest time
 bool PlanarTrajectoryInterpolatorBase::Interpolate(
     const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
     const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
     const tmc_manipulation_types::RobotState& goal_state,
     double normalized_vel,
@@ -111,17 +112,24 @@ bool PlanarTrajectoryInterpolatorBase::Interpolate(
   if (!CheckRobotInitialState(initial_state) || !CheckRobotState(goal_state)) {
     return false;
   }
+  for (const auto& middle_state : middle_states_near_initial) {
+    if (!CheckRobotState(middle_state)) {
+      return false;
+    }
+  }
   for (const auto& middle_state : middle_states_near_goal) {
     if (!CheckRobotState(middle_state)) {
       return false;
     }
   }
-  return InterpolateTrajectory(initial_state, middle_states_near_goal, goal_state, normalized_vel, trajectory_out);
+  return InterpolateTrajectory(initial_state, middle_states_near_initial, middle_states_near_goal,
+                               goal_state, normalized_vel, trajectory_out);
 }
 
-// Calonia interpolation to configure via points
+// Trajectory interpolation that sets waypoints
 bool PlanarTrajectoryInterpolatorBase::Interpolate(
     const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
     const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
     const tmc_manipulation_types::RobotState& goal_state,
     double normalized_vel,
@@ -132,13 +140,18 @@ bool PlanarTrajectoryInterpolatorBase::Interpolate(
       !CheckRobotState(random_middle_state)) {
     return false;
   }
+  for (const auto& middle_state : middle_states_near_initial) {
+    if (!CheckRobotState(middle_state)) {
+      return false;
+    }
+  }
   for (const auto& middle_state : middle_states_near_goal) {
     if (!CheckRobotState(middle_state)) {
       return false;
     }
   }
-  return InterpolateTrajectory(initial_state, middle_states_near_goal, goal_state, normalized_vel, random_middle_state,
-                               trajectory_out);
+  return InterpolateTrajectory(initial_state, middle_states_near_initial, middle_states_near_goal,
+                               goal_state, normalized_vel, random_middle_state, trajectory_out);
 }
 
 void PlanarTrajectoryInterpolator::Initialize(const rclcpp::Node::SharedPtr& node,
@@ -157,9 +170,10 @@ void PlanarTrajectoryInterpolator::Initialize(const rclcpp::Node::SharedPtr& nod
 }
 
 // spline interpolator
-// Middle_states_near_goal Spline interpolation is not implemented
+// Spline interpolation using middle_states_near_goal is not implemented
 bool PlanarTrajectoryInterpolator::InterpolateTrajectory(
     const tmc_manipulation_types::RobotState& initial_state,
+    __attribute__((unused)) const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
     __attribute__((unused)) const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
     const tmc_manipulation_types::RobotState& goal_state,
     double normalized_vel,
@@ -200,6 +214,7 @@ bool PlanarTrajectoryInterpolator::InterpolateTrajectory(
 // spline interpolator
 bool PlanarTrajectoryInterpolator::InterpolateTrajectory(
     const tmc_manipulation_types::RobotState& initial_state,
+    __attribute__((unused)) const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
     __attribute__((unused)) const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
     const tmc_manipulation_types::RobotState& goal_state,
     double normalized_vel,
@@ -243,7 +258,7 @@ bool PlanarTrajectoryInterpolator::InterpolateTrajectory(
   return true;
 }
 
-// Generate an interpolation orbital
+// Generate interpolated trajectory
 void PlanarTrajectoryInterpolator::InterpolateTrajectoryImpl(
     const tmc_manipulation_types::NameSeq& joint_names,
     const tmc_manipulation_types::NameSeq& base_names,
@@ -254,7 +269,7 @@ void PlanarTrajectoryInterpolator::InterpolateTrajectoryImpl(
   auto desired_steps = static_cast<int64_t>(ceil(end_time / time_stamp_->value()));
   std::vector<double> time_from_starts;
   if (desired_steps >= max_sampling_trajectory_->value()) {
-    // Finely chop it halfway, and the rest is widened
+    // Initially, use fine increments, then widen the intervals
     time_from_starts.reserve(max_sampling_trajectory_->value());
     for (uint32_t i = 0; i < max_sampling_trajectory_->value() / 2; ++i) {
       time_from_starts.push_back(static_cast<double>(i) * time_stamp_->value());
@@ -300,32 +315,37 @@ void PlanarTrajectoryInterpolator::InterpolateTrajectoryImpl(
 
 bool PlanarTrajectoryInterpolatorPlain::InterpolateTrajectory(
     const tmc_manipulation_types::RobotState& initial_state,
+    const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
     const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
     const tmc_manipulation_types::RobotState& goal_state,
     double normalized_vel,
     tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) {
-  // The copy is wasteful, but it doesn't mean that you can rewrite the input.
-  auto middle_states = middle_states_near_goal;
-  middle_states.push_back(goal_state);
+  // It's a waste to copy, but there's no choice since we can't modify the input
+  auto middle_states = middle_states_near_initial;
+  middle_states.insert(middle_states.end(), middle_states_near_goal.begin(), middle_states_near_goal.end());
+  middle_states.insert(middle_states.end(), goal_state);
 
-  Convert(initial_state, middle_states,
-          sampling_params_->joint_weights, sampling_params_->base_weights, trajectory_out);
-  return true;
+  return Convert(initial_state, middle_states,
+                 sampling_params_->joint_names, sampling_params_->joint_weights, sampling_params_->base_weights,
+                 trajectory_out);
 }
 
 bool PlanarTrajectoryInterpolatorPlain::InterpolateTrajectory(
     const tmc_manipulation_types::RobotState& initial_state,
+    const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
     const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
     const tmc_manipulation_types::RobotState& goal_state,
     double normalized_vel,
     const tmc_manipulation_types::RobotState& middle_state,
     tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) {
-  auto middle_states = middle_states_near_goal;
-  middle_states.insert(middle_states.begin(), middle_state);
-  middle_states.push_back(goal_state);
+  auto middle_states = middle_states_near_initial;
+  middle_states.insert(middle_states.end(), middle_state);
+  middle_states.insert(middle_states.end(), middle_states_near_goal.begin(), middle_states_near_goal.end());
+  middle_states.insert(middle_states.end(), goal_state);
 
-  Convert(initial_state, middle_states,
-          sampling_params_->joint_weights, sampling_params_->base_weights, trajectory_out);
+  return Convert(initial_state, middle_states,
+                 sampling_params_->joint_names, sampling_params_->joint_weights, sampling_params_->base_weights,
+                 trajectory_out);
   return true;
 }
 

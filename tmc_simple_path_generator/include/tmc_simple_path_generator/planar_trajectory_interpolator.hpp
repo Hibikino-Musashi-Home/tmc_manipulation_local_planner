@@ -48,14 +48,14 @@ class PlanarTrajectoryInterpolatorBase : public ITrajectoryInterpolator {
 
   void Initialize(const rclcpp::Node::SharedPtr& node, const SamplingParameters::Ptr& params) override;
 
-  // Orbit an interpolation that satisfies the restraint in the shortest time
+  // Trajectory interpolation that satisfies constraints in the shortest time
   bool Interpolate(
       const tmc_manipulation_types::RobotState& initial_state,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
       tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) override;
 
-  // Calonia interpolation to configure via points
+  // Trajectory interpolation with waypoint setting
   bool Interpolate(
       const tmc_manipulation_types::RobotState& initial_state,
       const tmc_manipulation_types::RobotState& goal_state,
@@ -63,17 +63,19 @@ class PlanarTrajectoryInterpolatorBase : public ITrajectoryInterpolator {
       const tmc_manipulation_types::RobotState& random_middle_state,
       tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) override;
 
-  // Orbit an interpolation that satisfies the restraint in the shortest time
+  // Trajectory interpolation that satisfies constraints in the shortest time
   bool Interpolate(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
       tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) override;
 
-  // Calonia interpolation to configure via points
+  // Trajectory interpolation with waypoint setting
   bool Interpolate(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
@@ -81,12 +83,13 @@ class PlanarTrajectoryInterpolatorBase : public ITrajectoryInterpolator {
       tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) override;
 
  protected:
-  // Orbit -generated parameters
+  // Parameters for trajectory generation
   SamplingParameters::Ptr sampling_params_;
 
  private:
   virtual bool InterpolateTrajectory(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
@@ -94,6 +97,7 @@ class PlanarTrajectoryInterpolatorBase : public ITrajectoryInterpolator {
 
   virtual bool InterpolateTrajectory(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
@@ -110,17 +114,18 @@ class PlanarTrajectoryInterpolator : public PlanarTrajectoryInterpolatorBase {
   void Initialize(const rclcpp::Node::SharedPtr& node, const SamplingParameters::Ptr& params) override;
 
  private:
-  // Dynamic parameter setting handle
+  // Handle for dynamic parameter setting
   std::vector<rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr> set_param_handlers_;
 
-  // Maximum value of scores at the time of orbit interpolation
+  // Maximum number of points during trajectory interpolation
   tmc_utils::DynamicParameter<int64_t>::Ptr max_sampling_trajectory_;
-  // Track time stamp
+  // Timestamp of the trajectory
   tmc_utils::DynamicParameter<double>::Ptr time_stamp_;
 
   // spline interpolator
   bool InterpolateTrajectory(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
@@ -129,13 +134,14 @@ class PlanarTrajectoryInterpolator : public PlanarTrajectoryInterpolatorBase {
   // spline interpolator
   bool InterpolateTrajectory(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
       const tmc_manipulation_types::RobotState& middle_state,
       tmc_manipulation_types::TimedRobotTrajectory& trajectory_out) override;
 
-  // Generate an interpolation orbital
+  // Generate interpolated trajectory
   void InterpolateTrajectoryImpl(
       const tmc_manipulation_types::NameSeq& joint_names,
       const tmc_manipulation_types::NameSeq& base_names,
@@ -154,6 +160,7 @@ class PlanarTrajectoryInterpolatorPlain : public PlanarTrajectoryInterpolatorBas
  private:
   bool InterpolateTrajectory(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,
@@ -161,6 +168,7 @@ class PlanarTrajectoryInterpolatorPlain : public PlanarTrajectoryInterpolatorBas
 
   bool InterpolateTrajectory(
       const tmc_manipulation_types::RobotState& initial_state,
+      const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_initial,
       const std::vector<tmc_manipulation_types::RobotState>& middle_states_near_goal,
       const tmc_manipulation_types::RobotState& goal_state,
       double normalized_vel,

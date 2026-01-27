@@ -91,12 +91,12 @@ void PlannedTrajectoryVisualization::TrajectoryCallback(const moveit_msgs::msg::
     return;
   }
 
-  // Visualization of orbit
+  // Visualization of the orbit
   moveit_msgs::msg::DisplayTrajectory display_trajectory;
   display_trajectory.trajectory.push_back(*msg);
   display_trajectory_pub_->publish(display_trajectory);
 
-  // Visualization of terminal posture
+  // Visualization of the terminal posture
   tmc_manipulation_types::TimedRobotTrajectory robot_trajectory;
   tmc_manipulation_types_bridge::RobotTrajectoryMsgToTimedRobotTrajectory(*msg, robot_trajectory);
 

@@ -30,6 +30,7 @@ DAMAGE.
 
 #include <memory>
 #include <optional>
+#include <random>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -41,7 +42,7 @@ DAMAGE.
 
 namespace tmc_simple_path_generator {
 
-// It's a strange name, but it's a hassle to change the name of SampleGoalGenerator now, so I will match it.
+// It's a weird name, but it's a hassle to change the name of SampleGoalGenerator now, so I'll go with it
 class ISampleMiddleGenerator {
  public:
   using Ptr = std::shared_ptr<ISampleMiddleGenerator>;
@@ -49,7 +50,7 @@ class ISampleMiddleGenerator {
   virtual ~ISampleMiddleGenerator() = default;
 
   // Initialization
-  virtual void Initialize(const rclcpp::Node::SharedPtr& node, const SamplingParameters::Ptr& params) = 0;
+  virtual void Initialize(const rclcpp::Node::SharedPtr& node) = 0;
 
   // Calculate a random intermediate state
   virtual std::optional<tmc_manipulation_types::RobotState> ComputeRandomMiddleState(
@@ -64,7 +65,7 @@ class PlanerMiddleStateGenerator : public ISampleMiddleGenerator {
   ~PlanerMiddleStateGenerator() = default;
 
   // Initialization
-  void Initialize(const rclcpp::Node::SharedPtr& node, const SamplingParameters::Ptr& params) override;
+  void Initialize(const rclcpp::Node::SharedPtr& node) override;
 
   // Calculate a random intermediate state
   std::optional<tmc_manipulation_types::RobotState> ComputeRandomMiddleState(
@@ -73,20 +74,21 @@ class PlanerMiddleStateGenerator : public ISampleMiddleGenerator {
       const SamplingParameters::Ptr& params) override;
 
  private:
-  // Calculate the middle state
+  // Random number generator
+  std::mt19937 engine_;
+
+  // Calculate intermediate state
   bool ComputeMiddleState(
       const tmc_manipulation_types::RobotState& initial_state,
       const tmc_manipulation_types::RobotState& goal_state,
       tmc_manipulation_types::RobotState& middle_state_out);
 
-  // Orbit -generated parameters
-  SamplingParameters::Ptr sampling_params_;
-  // Dynamic parameter setting handle
+  // Handle for dynamic parameter setting
   std::vector<rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr> set_param_handlers_;
 
-  // Width of random element elements in the middle bogie position [M]
+  // Width of random element for cart position in intermediate state [m]
   tmc_utils::DynamicParameter<double>::Ptr middle_state_base_position_range_;
-  // The width of the random element element of the middle state of bogie rotation [RAD]
+  // Width of random element for cart rotation in intermediate state [rad]
   tmc_utils::DynamicParameter<double>::Ptr middle_state_base_rotation_range_;
 };
 

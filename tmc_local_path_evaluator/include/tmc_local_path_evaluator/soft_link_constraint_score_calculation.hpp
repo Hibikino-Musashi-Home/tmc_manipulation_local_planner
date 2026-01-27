@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief Soft Link Constraint Score Calculation Class
 #ifndef TMC_LOCAL_PATH_EVALUATOR_SOFT_LINK_CONSTRAINT_SCORE_CALCULATION_HPP_
 #define TMC_LOCAL_PATH_EVALUATOR_SOFT_LINK_CONSTRAINT_SCORE_CALCULATION_HPP_
 
@@ -43,7 +44,7 @@ namespace tmc_local_path_evaluator {
 
 class SoftLinkConstraintScoreCalculation : public TrajectoryScoreCalculationBase {
  public:
-  /// @brief constructor
+  /// @brief Constructor
   SoftLinkConstraintScoreCalculation()
       : loader_("tmc_robot_kinematics_model", "tmc_robot_kinematics_model::IRobotKinematicsModel") {}
 

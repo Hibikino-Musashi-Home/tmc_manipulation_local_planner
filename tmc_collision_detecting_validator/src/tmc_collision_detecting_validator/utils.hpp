@@ -39,10 +39,10 @@ DAMAGE.
 
 namespace tmc_collision_detecting_validator {
 
-/// @breif Returns the element number of the target joint
-/// @param Joint_names search joint
-/// @param Target_Joint target joint
-/// @return If you do not do index, return the number of elements
+/// @brief Returns the element number of the target joint
+/// @param joint_names Joints to search
+/// @param target_joint Target joint
+/// @return index Returns the number of elements if not found
 uint32_t GetTargetJointIndex(const std::vector<std::string>& joint_names, const std::string& target_joint);
 
 class ITrajectoryPointsCollisionCheckOrder {
@@ -50,14 +50,17 @@ class ITrajectoryPointsCollisionCheckOrder {
   ITrajectoryPointsCollisionCheckOrder() = default;
   virtual ~ITrajectoryPointsCollisionCheckOrder() = default;
 
-  /// @breif Prepare an INIT function separately from the constructor in consideration of initialization and pluginization.
+  /// @brief Prepare an Init function separately from the constructor, considering initialization and pluginization
+  /// @param node ROS2 node
   virtual void Init(const rclcpp::Node::SharedPtr& node) = 0;
 
-  /// @breif Returns the index in the order of collisions at orbit
+  /// @brief Returns the index in the order of collision check of trajectory points
+  /// @param trajectory Input trajectory
+  /// @return Index in the order of collision check
   virtual std::vector<uint32_t> GenerateIndices(const tmc_manipulation_types::TimedRobotTrajectory& trajectory) = 0;
 };
 
-// Explore to jump
+// Search intermittently
 class TrajectoryPointsCollisionCheckSkippingOrder : public ITrajectoryPointsCollisionCheckOrder {
  public:
   TrajectoryPointsCollisionCheckSkippingOrder() = default;
@@ -67,7 +70,7 @@ class TrajectoryPointsCollisionCheckSkippingOrder : public ITrajectoryPointsColl
   std::vector<uint32_t> GenerateIndices(const tmc_manipulation_types::TimedRobotTrajectory& trajectory) override;
 };
 
-// Explore only the beginning and the end
+// Search densely only at the beginning and end
 class TrajectoryPointsCollisionCheckBothEnds : public ITrajectoryPointsCollisionCheckOrder {
  public:
   TrajectoryPointsCollisionCheckBothEnds() = default;

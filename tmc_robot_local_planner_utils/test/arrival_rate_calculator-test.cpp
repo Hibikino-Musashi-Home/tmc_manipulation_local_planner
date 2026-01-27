@@ -25,7 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
-/// @brief ARRIVALRATECALCULATOR test
+/// @brief Test of ArrivalRateCalculator
 
 #include <gtest/gtest.h>
 
@@ -54,16 +54,16 @@ class ArrivalRateCalculatorTest : public ::testing::Test {
 };
 
 void ArrivalRateCalculatorTest::SetUp() {
-  // Instance generation
+  // Instance creation
   arrival_rate_calculator_ = std::make_shared<ArrivalRateCalculator>();
 
-  // RangeJointConstraint settings
+  // Setting of RangeJointConstraint
   min_.joint_state.name = joint_names_;
   min_.joint_state.position.resize(joint_names_.size());
   min_.joint_state.position << 1.1, 1.2, 1.3, 1.4, 1.5, 1.6;
   max_ = min_;
 
-  // // TSRLINKCONSTRAINT settings
+  // // Setting of TsrLinkConstraint
   // tsr_.end_frame_id = "link7";
   // Eigen::Translation3d translation(0.0, 0.0, 0.0);
   // Eigen::Quaterniond quaternion(1.0, 0.0, 0.0, 0.0);
@@ -86,67 +86,67 @@ void ArrivalRateCalculatorTest::TearDown() {
   constraints_.hard_link_constraints.clear();
 }
 
-// Arrivalrate can be calculated at Hard_Joint_constraints
+// ArrivalRate can be calculated with hard_joint_constraints
 TEST_F(ArrivalRateCalculatorTest, JointConstraintCalculate) {
   // setup
   constraints_.hard_joint_constraints.push_back(
       std::make_shared<tmc_robot_local_planner::RangeJointConstraint>(min_, max_, 0, 0));
 
-  // Arrivalrate when receiving Constraint
+  // ArrivalRate when receiving a constraint
   arrival_rate_calculator_->SetConstraints(constraints_);
   auto arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-  // The first arrival rate of constraint should be 0%
+  // The initial arrival rate when a constraint is set should be 0%
   EXPECT_NEAR(arrival_rate.get(), 0.0, 0.01);
 
-  // Arrivalrate when not receiving Constraint
+  // ArrivalRate when not receiving a constraint
   robot_state_.joint_state.position << 0.6, 0.7, 0.8, 0.9, 1.0, 1.1;
   arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-  // If it moves halfway, the reach should be 50%
+  // If it moves halfway, the arrival rate should be 50%
   EXPECT_NEAR(arrival_rate.get(), 50.0, 0.01);
 
   robot_state_.joint_state.position << 1.1, 1.2, 1.3, 1.4, 1.5, 1.6;
   arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-  // If you reach the goal, it should be 100%
+  // If it reaches the goal, it should be 100%
   EXPECT_NEAR(arrival_rate.get(), 100.0, 0.01);
 }
 
-// // Arrivalrate can be calculated at hard_link_constraints
+// // ArrivalRate can be calculated with hard_link_constraints
 // TEST_F(ArrivalRateCalculatorTest, LinkConstraintCalculate) {
 //   // setup
-//   // Link7 position when each Joint is 0.0
+//   // Position of link7 when each joint is 0.0
 //   Eigen::Translation3d translation(0.0, -0.25, 0.95);
 //   Eigen::Quaterniond quaternion(1.0, 0.0, 0.0, 0.0);
 //   tsr_.origin_to_tsr = translation * quaternion;
 //   constraints_.hard_link_constraints.push_back(
 //       std::make_shared<TsrLinkConstraint>(tsr_, 0, 0));
 
-//   // Arrivalrate when receiving Constraint
+//   // ArrivalRate when receiving a constraint
 //   arrival_rate_calculator_->SetConstraints(constraints_);
-//   // Move only the direct motion axis JOINR3
+//   // Move only the linear axis joinr3
 //   robot_state_.joint_state.position << 0.0, 0.0, 0.2, 0.0, 0.0, 0.0;
 //   auto arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
 //   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-//   // The first arrival rate of constraint should be 0%
+//   // The initial arrival rate when a constraint is set should be 0%
 //   EXPECT_NEAR(arrival_rate.get(), 0.0, 0.01);
 
-//   // Arrivalrate when not receiving Constraint
+//   // ArrivalRate when not receiving a constraint
 //   robot_state_.joint_state.position << 0.0, 0.0, 0.1, 0.0, 0.0, 0.0;
 //   arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
 //   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-//   // JOINT3 should be 50%with the initial value+half the target value.
+//   // Arrival rate should be 50% when joint3 is at half the value of the initial + target value
 //   EXPECT_NEAR(arrival_rate.get(), 50, 0.01);
 
 //   robot_state_.joint_state.position << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 //   arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
 //   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-//   // Each Joint should be 0.0 and the reach is 100%
+//   // Arrival rate should be 100% when each joint is 0.0
 //   EXPECT_NEAR(arrival_rate.get(), 100, 0.01);
 // }
 
-// // Hard_link_constraints when there is no robot model
+// // hard_link_constraints when there is no robot model
 // TEST_F(ArrivalRateCalculatorTest, LinkConstraintsCannotCalculatedWithoutKinematicsModel) {
 //   // setup
 //   Eigen::Translation3d translation(1.0, 1.0, 1.0);
@@ -155,17 +155,17 @@ TEST_F(ArrivalRateCalculatorTest, JointConstraintCalculate) {
 //   constraints_.hard_link_constraints.push_back(
 //       std::make_shared<TsrLinkConstraint>(tsr_, 0, 0));
 
-//   // Hold the robot model parameter and delete it
+//   // Retain and delete robot model parameters
 //   std::string keep_description;
 //   nh_.getParam("robot_description", keep_description);
 //   nh_.deleteParam("robot_description");
-//   // Confirm that there is no
+//   // Confirm absence
 //   ASSERT_FALSE(nh_.hasParam("robot_description"));
 
-//   // Instance generation
+//   // Instance creation
 //   arrival_rate_calculator_ = ArrivalRateCalculator::Ptr(new ArrivalRateCalculator());
 
-//   // You can't calculate without a robot model
+//   // Cannot calculate without a robot model
 //   arrival_rate_calculator_->SetConstraints(constraints_);
 //   auto arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
 //   ASSERT_FALSE(static_cast<bool>(arrival_rate));
@@ -174,23 +174,23 @@ TEST_F(ArrivalRateCalculatorTest, JointConstraintCalculate) {
 //   nh_.setParam("robot_description", keep_description);
 // }
 
-// // Hard_joint_constraints when there is no robot model
+// // hard_joint_constraints when there is no robot model
 // TEST_F(ArrivalRateCalculatorTest, JointConstraintsCanCalculatedWithoutKinematicsModel) {
 //   // setup
 //   constraints_.hard_joint_constraints.push_back(
 //       std::make_shared<RangeJointConstraint>(min_, max_, 0, 0));
 
-//   // Hold the robot model parameter and delete it
+//   // Retain and delete robot model parameters
 //   std::string keep_description;
 //   nh_.getParam("robot_description", keep_description);
 //   nh_.deleteParam("robot_description");
-//   // Confirm that there is no
+//   // Confirm absence
 //   ASSERT_FALSE(nh_.hasParam("robot_description"));
 
-//   // Instance generation
+//   // Instance creation
 //   arrival_rate_calculator_ = ArrivalRateCalculator::Ptr(new ArrivalRateCalculator());
 
-//   // Joint_constraint is calculated by displacement, so you can calculate without a robot model.
+//   // Since joint_constraint is calculated by displacement, it can be calculated without a robot model
 //   arrival_rate_calculator_->SetConstraints(constraints_);
 //   auto arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
 //   ASSERT_TRUE(static_cast<bool>(arrival_rate));
@@ -205,10 +205,10 @@ TEST_F(ArrivalRateCalculatorTest, JointConstraintCalculate) {
 //   nh_.setParam("robot_description", keep_description);
 // }
 
-// // When both Hard_link_constraint and Hard_joint_constraint
+// // When both hard_link_constraint and hard_joint_constraint are present
 // TEST_F(ArrivalRateCalculatorTest, JointAndLinkConstraints) {
 //   // setup
-//   // Hard_Joint_constraint settings
+//   // Setting of hard_joint_constraint
 //   tmc_manipulation_types::RobotState min;
 //   min.joint_state.name.push_back("joint6");
 //   min.joint_state.position.resize(1);
@@ -217,41 +217,41 @@ TEST_F(ArrivalRateCalculatorTest, JointConstraintCalculate) {
 //   constraints_.hard_joint_constraints.push_back(
 //       std::make_shared<RangeJointConstraint>(min, max, 0, 0));
 
-//   // Link7 position when each Joint is 0.0
+//   // Position of link7 when each joint is 0.0
 //   Eigen::Translation3d translation(0.0, -0.25, 0.95);
 //   Eigen::Quaterniond quaternion(1.0, 0.0, 0.0, 0.0);
 //   tsr_.origin_to_tsr = translation * quaternion;
 //   constraints_.hard_link_constraints.push_back(
 //       std::make_shared<TsrLinkConstraint>(tsr_, 0, 0));
 
-//   // Arrivalrate when receiving Constraint
+//   // ArrivalRate when receiving a constraint
 //   arrival_rate_calculator_->SetConstraints(constraints_);
 //   robot_state_.joint_state.position << 0.0, 0.0, 0.2, 0.0, 0.0, 0.2;
 //   auto arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
 //   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-//   // The first arrival rate of constraint should be 0%
+//   // The initial arrival rate when a constraint is set should be 0%
 //   EXPECT_NEAR(arrival_rate.get(), 0.0, 0.01);
 
-//   // Arrivalrate when not receiving Constraint
+//   // ArrivalRate when not receiving a constraint
 //   robot_state_.joint_state.position << 0.0, 0.0, 0.1, 0.0, 0.0, 0.1;
 //   arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
 //   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-//   // If it moves halfway, the reach should be 50%
+//   // If it moves halfway, the arrival rate should be 50%
 //   EXPECT_NEAR(arrival_rate.get(), 50.0, 0.01);
 
 //   robot_state_.joint_state.position << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 //   arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
 //   ASSERT_TRUE(static_cast<bool>(arrival_rate));
-//   // If you reach the goal, it should be 100%
+//   // If it reaches the goal, it should be 100%
 //   EXPECT_NEAR(arrival_rate.get(), 100.0, 0.01);
 // }
 
-// When constraint is empty
+// When the constraint is empty
 TEST_F(ArrivalRateCalculatorTest, EmptyConstraints) {
-  // Set the empty Constraint
+  // Set an empty constraint
   arrival_rate_calculator_->SetConstraints(constraints_);
 
-  // If constraint is empty, the reach will be 100%
+  // If the constraint is empty, the arrival rate should be 100%
   auto arrival_rate = arrival_rate_calculator_->CalculateArrivalRate(robot_state_);
   ASSERT_TRUE(static_cast<bool>(arrival_rate));
   EXPECT_NEAR(arrival_rate.get(), 100.0, 0.01);

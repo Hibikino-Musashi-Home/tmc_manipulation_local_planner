@@ -25,6 +25,9 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @file     range_joint_constraint.cpp
+/// @brief    interface of by range joint constraints
+/// @author   Koji Terada, Yuta Watanabe
 
 #include <tmc_robot_local_planner/range_joint_constraint.hpp>
 

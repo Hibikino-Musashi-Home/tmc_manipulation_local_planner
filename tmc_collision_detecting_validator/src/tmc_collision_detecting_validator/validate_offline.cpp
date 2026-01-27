@@ -30,7 +30,7 @@ DAMAGE.
 #include <moveit_msgs/msg/planning_scene_world.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <std_msgs/msg/u_int32.hpp>
+#include <std_msgs/msg/u_int32_multi_array.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -132,6 +132,14 @@ tmc_manipulation_types::JointState Extract(const std::vector<std::string>& joint
   return state;
 }
 
+std::string IsValidated(const std::vector<uint32_t>& validated_indices, uint32_t index) {
+  if (std::find(validated_indices.begin(), validated_indices.end(), index) != validated_indices.end()) {
+    return "Validated";
+  } else {
+    return "Not validated";
+  }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -150,15 +158,14 @@ int main(int argc, char* argv[]) {
   }
   RCLCPP_INFO_STREAM(node->get_logger(), "Num of Input Trajectory: " << action_goal.robot_trajectories.size());
 
-  std_msgs::msg::UInt32 validation_count;
-  if (tmc_utils::LoadMsg(std::string(argv[1]) + ".count", validation_count)) {
-    // There is information that you checked up to Index N, so the number of checks is displayed by +1.
-    RCLCPP_INFO_STREAM(node->get_logger(), "Num of Validated Trajectory: " << validation_count.data + 1);
+  std_msgs::msg::UInt32MultiArray validation_indices;
+  if (tmc_utils::LoadMsg(std::string(argv[1]) + ".indices", validation_indices)) {
+    RCLCPP_INFO_STREAM(node->get_logger(), "Num of Validated Indices: " << validation_indices.data.size());
   }
 
   moveit_msgs::msg::PlanningSceneWorld env;
   if (!tmc_utils::LoadMsg(std::string(argv[1]) + ".env", env)) {
-    // There may not be any environmental information or knowledgeable information, so it will continue to process just by giving a message.
+    // Since environmental information and grasped object information may not exist, continue processing with only a message output
     std::cerr << "Fail to load " << argv[1] <<  ".env" << std::endl;
   }
   RCLCPP_INFO_STREAM(node->get_logger(), "Num of Collision Objects: " << env.collision_objects.size());
@@ -201,7 +208,7 @@ int main(int argc, char* argv[]) {
   environment_pub->Publish(collision_detector);
 
   for (auto i = 0; i < action_goal.robot_trajectories.size(); ++i) {
-    RCLCPP_INFO_STREAM(node->get_logger(), "Trajectory " << i);
+    RCLCPP_INFO_STREAM(node->get_logger(), "Trajectory " << i << ": " << IsValidated(validation_indices.data, i));
     bool is_collision = false;
 
     const auto robot_trajectory = action_goal.robot_trajectories[i];

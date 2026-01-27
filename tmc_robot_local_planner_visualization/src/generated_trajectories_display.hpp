@@ -41,7 +41,7 @@ DAMAGE.
 
 namespace tmc_robot_local_planner_visualization {
 
-// Function name matches the naming of RVIZ PLUGINS
+// Function names should match the naming convention of rviz plugins
 
 class RobotTrajectoryLinkUpdater : public rviz_default_plugins::robot::LinkUpdater {
  public:

@@ -25,6 +25,9 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @file     robot_local_planner-test.cpp
+/// @brief    planing local path constrained test
+/// @author   Koji Terada, Yuta Watanabe, Satoru Onoda
 #include <gtest/gtest.h>
 
 #include <rclcpp/rclcpp.hpp>
@@ -87,7 +90,7 @@ class DummyBase {
     callback_time_ = node_->now();
 
     const auto goal = goal_handle->get_goal();
-    // It is first to use result, but call it here because it will store the variables required for the test.
+    // Although result is used first, it is called here because variables necessary for testing are stored, etc.
     const auto result = ExecuteImpl(goal);
 
     if (do_abort_) {
@@ -127,11 +130,11 @@ class DummyGenerator : public DummyBase<tmc_planning_msgs::action::GenerateRobot
       : DummyBase(node, prefix + "generate") {}
   virtual ~DummyGenerator() = default;
 
-  std::vector<std::string> ignore_joints() const { return ignore_joints_; }
+  bool enable_base() const { return enable_base_; }
 
  protected:
   std::shared_ptr<ResultType> ExecuteImpl(const std::shared_ptr<const GoalType>& goal) override {
-    ignore_joints_ = goal->ignore_joints;
+    enable_base_ = goal->enable_base;
 
     moveit_msgs::msg::RobotTrajectory trajectory;
     trajectory.joint_trajectory.joint_names.push_back(
@@ -147,7 +150,7 @@ class DummyGenerator : public DummyBase<tmc_planning_msgs::action::GenerateRobot
   }
 
  private:
-  std::vector<std::string> ignore_joints_;
+  bool enable_base_;
 };
 
 class DummyEvaluator : public DummyBase<tmc_planning_msgs::action::EvaluateRobotTrajectories> {
@@ -269,7 +272,7 @@ void RobotLocalPlannerTest::SetUp() {
   goal_constraints_.hard_joint_constraints.push_back(rjc_);
 }
 
-// The four actions are called in order and PlanPath becomes true
+// The four actions are called in order, and PlanPath becomes true
 TEST_F(RobotLocalPlannerTest, PlanPath) {
   auto trajectory_future = planner_->PlanPath(goal_constraints_, moveit_msgs::msg::RobotState(), 0.1);
   WaitForFutureComplete(trajectory_future);
@@ -277,39 +280,38 @@ TEST_F(RobotLocalPlannerTest, PlanPath) {
 
   const auto trajectory = trajectory_future.get();
 
-  // The entered data returns over the four actions
+  // The input data passes through the four actions and returns
   EXPECT_EQ(trajectory.joint_trajectory.joint_names[0], rjc_.min.joint_state.name[0]);
   EXPECT_EQ(trajectory.joint_trajectory.points[0].positions[0], rjc_.min.joint_state.position[0]);
 
-  // Generator-> EVALUATOR-> Validator-> Optimizer
+  // Called in the order of generator -> evaluator -> validator -> optimizer
   EXPECT_LT(0.0, generator_->GetCallbackTime().seconds());
   EXPECT_LT(generator_->GetCallbackTime(), evaluator_->GetCallbackTime());
   EXPECT_LT(evaluator_->GetCallbackTime(), validator_->GetCallbackTime());
   EXPECT_LT(validator_->GetCallbackTime(), optimizer_->GetCallbackTime());
 
-  EXPECT_TRUE(generator_->ignore_joints().empty());
+  EXPECT_TRUE(generator_->enable_base());
   EXPECT_EQ(evaluator_->GetTrajectorySize(), 1);
 
   ASSERT_TRUE(trajectory_candidates_cache_->IsSubscribed());
   EXPECT_EQ(trajectory_candidates_cache_->GetValue().trajectory.size(), 1);
 }
 
-// Specify a joint not used in the plan
+// Specify joints not used in planning
 TEST_F(RobotLocalPlannerTest, PlanPathWithIgnoreJoints) {
   client_node_->set_parameter(rclcpp::Parameter("publish_generated_trajectories", false));
   planner_ = std::make_shared<RobotLocalPlanner>(client_node_, trajectory_merger_);
 
-  auto trajectory_future = planner_->PlanPath(goal_constraints_, moveit_msgs::msg::RobotState(), 0.1, {"test_joint"});
+  auto trajectory_future = planner_->PlanPath(goal_constraints_, moveit_msgs::msg::RobotState(), 0.1, false);
   WaitForFutureComplete(trajectory_future);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kSuccess, planner_->last_error_code());
 
-  ASSERT_EQ(generator_->ignore_joints().size(), 1);
-  EXPECT_EQ(generator_->ignore_joints()[0], "test_joint");
+  EXPECT_FALSE(generator_->enable_base());
 
   EXPECT_FALSE(trajectory_candidates_cache_->IsSubscribed());
 }
 
-// The trajectory is merged with TrajectoryMerger and it is going to EVALUATOR
+// The trajectory is merged in TrajectoryMerger and passed to the evaluator
 TEST_F(RobotLocalPlannerTest, PlanPathWithTrajectoryMerger) {
   moveit_msgs::msg::RobotTrajectory robot_trajectory;
   robot_trajectory.joint_trajectory.joint_names.push_back("joint0");
@@ -321,11 +323,11 @@ TEST_F(RobotLocalPlannerTest, PlanPathWithTrajectoryMerger) {
   WaitForFutureComplete(trajectory_future);
   EXPECT_EQ(RobotLocalPlannerErrorCode::kSuccess, planner_->last_error_code());
 
-  // The set trajectory should be merged and the number of trajectory should be 2
+  // The set trajectory should be merged, resulting in 2 trajectories
   EXPECT_EQ(evaluator_->GetTrajectorySize(), 2);
 }
 
-// PlanPath turns without giving TrajectoryMerger
+// PlanPath runs even without providing TrajectoryMerger
 TEST_F(RobotLocalPlannerTest, PlanPathWithoutTrajectoryMerger) {
   planner_ = std::make_shared<RobotLocalPlanner>(client_node_);
   while (!planner_->AreActionServersReady()) {
@@ -340,7 +342,7 @@ TEST_F(RobotLocalPlannerTest, PlanPathWithoutTrajectoryMerger) {
   EXPECT_FALSE(trajectory.joint_trajectory.points.empty());
 }
 
-// Explicitly give the action name
+// Explicitly provide the action name
 TEST_F(RobotLocalPlannerTest, PlanPathWithExplicitActionNames) {
   RobotLocalPlanner::ActionNames action_names;
   EXPECT_EQ(action_names.generate_action, "generate");
@@ -379,7 +381,7 @@ TEST_F(RobotLocalPlannerTest, PlanPathWithExplicitActionNames) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Failed in the empty Constraints
+// Fails with empty constraints
 TEST_F(RobotLocalPlannerTest, EmptyConstraints) {
   auto trajectory_future = planner_->PlanPath(tmc_planning_msgs::msg::Constraints(),
                                               moveit_msgs::msg::RobotState(), 0.1);
@@ -395,7 +397,7 @@ TEST_F(RobotLocalPlannerTest, EmptyConstraints) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Cases to be Reject in GENERATOR
+// Case rejected by generator
 TEST_F(RobotLocalPlannerTest, RejectedByGenerator) {
   generator_->SetDoReject(true);
 
@@ -406,15 +408,15 @@ TEST_F(RobotLocalPlannerTest, RejectedByGenerator) {
   const auto trajectory = trajectory_future.get();
   EXPECT_TRUE(trajectory.joint_trajectory.points.empty());
 
-  // If it's Reject, you can't even call a callback
+  // Even the callback is not called if rejected
   EXPECT_DOUBLE_EQ(generator_->GetCallbackTime().seconds(), 0.0);
-  // EVALUATOR, VALIDATOR, Optimizer is not called because it should have failed in GENERATOR
+  // Should fail in generator, so evaluator, validator, optimizer are not called
   EXPECT_DOUBLE_EQ(evaluator_->GetCallbackTime().seconds(), 0.0);
   EXPECT_DOUBLE_EQ(validator_->GetCallbackTime().seconds(), 0.0);
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Case to be about to be done in GENERATOR
+// Case aborted by generator
 TEST_F(RobotLocalPlannerTest, AbortedByGenerator) {
   generator_->SetDoAbort(true);
 
@@ -427,13 +429,13 @@ TEST_F(RobotLocalPlannerTest, AbortedByGenerator) {
 
   EXPECT_LT(0.0, generator_->GetCallbackTime().seconds());
 
-  // EVALUATOR, VALIDATOR, Optimizer is not called because it should have failed in GENERATOR
+  // Should fail in generator, so evaluator, validator, optimizer are not called
   EXPECT_DOUBLE_EQ(evaluator_->GetCallbackTime().seconds(), 0.0);
   EXPECT_DOUBLE_EQ(validator_->GetCallbackTime().seconds(), 0.0);
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Cases to be rejected in EVALUATOR
+// Case rejected by evaluator
 TEST_F(RobotLocalPlannerTest, RejectedByEvaluator) {
   evaluator_->SetDoReject(true);
 
@@ -451,7 +453,7 @@ TEST_F(RobotLocalPlannerTest, RejectedByEvaluator) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Case to be about with EVALUATOR
+// Case aborted by evaluator
 TEST_F(RobotLocalPlannerTest, AbortedByEvaluator) {
   evaluator_->SetDoAbort(true);
 
@@ -469,7 +471,7 @@ TEST_F(RobotLocalPlannerTest, AbortedByEvaluator) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Cases to be Reject in Validator
+// Case rejected by validator
 TEST_F(RobotLocalPlannerTest, RejectedByValidator) {
   validator_->SetDoReject(true);
 
@@ -487,7 +489,7 @@ TEST_F(RobotLocalPlannerTest, RejectedByValidator) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Cases to be about in Validator
+// Case aborted by validator
 TEST_F(RobotLocalPlannerTest, AbortedByValidator) {
   validator_->SetDoAbort(true);
 
@@ -505,7 +507,7 @@ TEST_F(RobotLocalPlannerTest, AbortedByValidator) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Cases to be Reject in Optimizer
+// Case rejected by optimizer
 TEST_F(RobotLocalPlannerTest, RejectedByOptimizer) {
   optimizer_->SetDoReject(true);
 
@@ -523,7 +525,7 @@ TEST_F(RobotLocalPlannerTest, RejectedByOptimizer) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Case to be about with Optimizer
+// Case aborted by optimizer
 TEST_F(RobotLocalPlannerTest, AbortedByOptimizer) {
   optimizer_->SetDoAbort(true);
 
@@ -540,7 +542,7 @@ TEST_F(RobotLocalPlannerTest, AbortedByOptimizer) {
   EXPECT_LT(validator_->GetCallbackTime(), optimizer_->GetCallbackTime());
 }
 
-// Preempted case
+// Case of being preempted
 TEST_F(RobotLocalPlannerTest, Timeout) {
   generator_->SetDoWait(true);
 
@@ -560,7 +562,7 @@ TEST_F(RobotLocalPlannerTest, Timeout) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Generate interrupt while executing
+// Interruption during generate execution
 TEST_F(RobotLocalPlannerTest, InterruptGenerator) {
   generator_->SetDoWait(true);
 
@@ -583,7 +585,7 @@ TEST_F(RobotLocalPlannerTest, InterruptGenerator) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// EVALUATE interrupt
+// Interruption during evaluate execution
 TEST_F(RobotLocalPlannerTest, InterruptEvaluator) {
   evaluator_->SetDoWait(true);
 
@@ -606,7 +608,7 @@ TEST_F(RobotLocalPlannerTest, InterruptEvaluator) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Validate interrupt
+// Interruption during validate execution
 TEST_F(RobotLocalPlannerTest, InterruptValidator) {
   validator_->SetDoWait(true);
 
@@ -629,7 +631,7 @@ TEST_F(RobotLocalPlannerTest, InterruptValidator) {
   EXPECT_DOUBLE_EQ(optimizer_->GetCallbackTime().seconds(), 0.0);
 }
 
-// Optimize interrupt during execution
+// Interruption during optimize execution
 TEST_F(RobotLocalPlannerTest, InterruptOptimizer) {
   optimizer_->SetDoWait(true);
 

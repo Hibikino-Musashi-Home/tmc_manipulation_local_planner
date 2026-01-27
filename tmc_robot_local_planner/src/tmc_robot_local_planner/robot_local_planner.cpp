@@ -25,6 +25,10 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @file     robot_local_planner.cpp
+/// @brief    planing local path constrained
+/// @author   Koji Terada, Yuta Watanabe, Satoru Onoda
+
 #include "tmc_robot_local_planner/robot_local_planner.hpp"
 
 #include <vector>
@@ -134,7 +138,7 @@ VisualizationPublisher::VisualizationPublisher(const rclcpp::Node::SharedPtr& no
 
 void VisualizationPublisher::PublishGeneratedTrajectories(
     const std::vector<tmc_manipulation_types::TimedRobotTrajectory>& trajectories) const {
-  // If you do not issue unnecessary conversions, you will get out immediately
+  // Exit immediately if not issuing to avoid unnecessary conversion
   if (!publish_generated_trajectories_->value()) {
     return;
   }
@@ -192,16 +196,16 @@ std::future<tmc_manipulation_types::TimedRobotTrajectory> RobotLocalPlannerCompo
     const Constraints& goal_constraints,
     const tmc_manipulation_types::RobotState& initial_state,
     double normalized_vel) {
-  return PlanPath(goal_constraints, initial_state, normalized_vel, {});
+  return PlanPath(goal_constraints, initial_state, normalized_vel, true);
 }
 
 std::future<tmc_manipulation_types::TimedRobotTrajectory> RobotLocalPlannerComposition::PlanPath(
     const Constraints& goal_constraints,
     const tmc_manipulation_types::RobotState& initial_state,
     double normalized_vel,
-    const std::vector<std::string>& ignore_joints) {
+    bool enable_base) {
   auto func = std::bind(&RobotLocalPlannerComposition::PlanPathImpl, this,
-                        goal_constraints, initial_state, normalized_vel, ignore_joints);
+                        goal_constraints, initial_state, normalized_vel, enable_base);
   return std::async(std::launch::async, func);
 }
 
@@ -209,7 +213,7 @@ tmc_manipulation_types::TimedRobotTrajectory RobotLocalPlannerComposition::PlanP
     const Constraints& goal_constraints,
     const tmc_manipulation_types::RobotState& initial_state,
     double normalized_vel,
-    const std::vector<std::string>& ignore_joints) {
+    bool enable_base) {
   set_is_interrupt_requested(false);
   if (goal_constraints.hard_link_constraints.empty() && goal_constraints.hard_joint_constraints.empty()) {
     RCLCPP_WARN(logger_, "No hard constraints.");
@@ -221,7 +225,7 @@ tmc_manipulation_types::TimedRobotTrajectory RobotLocalPlannerComposition::PlanP
   std::vector<tmc_manipulation_types::TimedRobotTrajectory> trajectories_gen;
   auto interrupt_func = std::bind(&RobotLocalPlannerComposition::is_interrupt_requested, this);
   const bool gen_result = plugins_.generator->Generate(
-      goal_constraints, initial_state, normalized_vel, ignore_joints,
+      goal_constraints, initial_state, normalized_vel, enable_base,
       interrupt_func, trajectories_gen);
   if (!gen_result) {
     RCLCPP_WARN(logger_, "Failed to generator.");
@@ -266,7 +270,7 @@ tmc_manipulation_types::TimedRobotTrajectory RobotLocalPlannerComposition::PlanP
 
   // validator
   tmc_manipulation_types::TimedRobotTrajectory trajectory_val;
-  bool val_result = plugins_.validator->Validate(trajectories_eval, interrupt_func, trajectory_val);
+  bool val_result = plugins_.validator->Validate(trajectories_eval, initial_state, interrupt_func, trajectory_val);
   if (!val_result) {
     RCLCPP_WARN(logger_, "Failed to validator.");
     UpdateLastErrorCode(RobotLocalPlannerErrorCode::kValidationFailure);
@@ -335,16 +339,16 @@ std::future<moveit_msgs::msg::RobotTrajectory> RobotLocalPlanner::PlanPath(
     const tmc_planning_msgs::msg::Constraints& goal_constraints,
     const moveit_msgs::msg::RobotState& initial_state,
     double normalized_vel) {
-  return PlanPath(goal_constraints, initial_state, normalized_vel, {});
+  return PlanPath(goal_constraints, initial_state, normalized_vel, true);
 }
 
 std::future<moveit_msgs::msg::RobotTrajectory> RobotLocalPlanner::PlanPath(
     const tmc_planning_msgs::msg::Constraints& goal_constraints,
     const moveit_msgs::msg::RobotState& initial_state,
     double normalized_vel,
-    const std::vector<std::string>& ignore_joints) {
+    bool enable_base) {
   auto func = std::bind(&RobotLocalPlanner::PlanPathImpl, this,
-                        goal_constraints, initial_state, normalized_vel, ignore_joints);
+                        goal_constraints, initial_state, normalized_vel, enable_base);
   return std::async(std::launch::async, func);
 }
 
@@ -352,7 +356,7 @@ moveit_msgs::msg::RobotTrajectory RobotLocalPlanner::PlanPathImpl(
     const tmc_planning_msgs::msg::Constraints& goal_constraints,
     const moveit_msgs::msg::RobotState& initial_state,
     double normalized_vel,
-    const std::vector<std::string>& ignore_joints) {
+    bool enable_base) {
   set_is_interrupt_requested(false);
   if (goal_constraints.hard_link_constraints.empty() && goal_constraints.hard_joint_constraints.empty()) {
     RCLCPP_WARN(logger_, "No hard constraints.");
@@ -365,7 +369,7 @@ moveit_msgs::msg::RobotTrajectory RobotLocalPlanner::PlanPathImpl(
   generator_goal.constraints = goal_constraints;
   generator_goal.initial_state = initial_state;
   generator_goal.normalized_velocity = normalized_vel;
-  generator_goal.ignore_joints = ignore_joints;
+  generator_goal.enable_base = enable_base;
 
   tmc_planning_msgs::action::GenerateRobotTrajectories::Result::SharedPtr generator_result;
   if (!ActionProcess(generator_goal, generator_client_, generator_result, clock_, action_timeout_,
@@ -397,6 +401,7 @@ moveit_msgs::msg::RobotTrajectory RobotLocalPlanner::PlanPathImpl(
   // validator
   tmc_planning_msgs::action::ValidateRobotTrajectories::Goal validator_goal;
   validator_goal.robot_trajectories.swap(evaluator_result->robot_trajectories);
+  validator_goal.initial_state = initial_state;
 
   tmc_planning_msgs::action::ValidateRobotTrajectories::Result::SharedPtr validator_result;
   if (!ActionProcess(validator_goal, validator_client_, validator_result, clock_, action_timeout_,

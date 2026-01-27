@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief JointWeights class
 #ifndef TMC_LOCAL_PATH_EVALUATOR_JOINT_WEIGHTS_HPP_
 #define TMC_LOCAL_PATH_EVALUATOR_JOINT_WEIGHTS_HPP_
 
@@ -47,7 +48,7 @@ namespace tmc_local_path_evaluator {
 
 class JointWeights {
  public:
-  // I want to return the success or failure, so I define the Initialize function instead of the constructor.
+  // I want to return success or failure, so I define an Initialize function instead of a constructor
   bool Initialize(rclcpp::Node::SharedPtr node, tmc_manipulation_types::BaseMovementType type,
                   const std::string& parameter_namespace);
   boost::optional<Eigen::VectorXd> GetWeightVector(

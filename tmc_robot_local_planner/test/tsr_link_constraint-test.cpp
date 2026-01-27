@@ -25,6 +25,9 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// \brief    tsr_link_constraint test
+/// \author   Yuta Watanabe
+
 #include <memory>
 #include <gtest/gtest.h>
 #include <tmc_robot_local_planner/link_constraint.hpp>
@@ -174,7 +177,7 @@ TEST_F(TsrLinkConstraintTest, RotationDisplacement) {
     SCOPED_TRACE(std::string("values: [") + std::to_string(rot_values[0]) + ", " + std::to_string(rot_values[1])
                  + ", " + std::to_string(rot_values[2]) + "]");
 
-    // Since it is mechanically turned, another small RPY may exist, so compare it with LT instead of EQ.
+    // Since it is mechanically rotated, there may be another small RPY, so compare with LT instead of EQ
     ASSERT_LT(tsr_const->CalcDisplacement(sample), expected + kEpsilon);
   }
 }
@@ -189,7 +192,7 @@ TEST_F(TsrLinkConstraintTest, CalcClosestTest) {
   TaskSpaceRegion tsr(Affine3d::Identity(), Affine3d::Identity(), min, max, "origin", "hand");
   ILinkConstraint::Ptr constraint = std::make_shared<TsrLinkConstraint>(tsr, 0);
   {
-    // As it is in TSR, just as it is
+    // Inside tsr, as is
     const Affine3d input = Eigen::Translation3d(0.1, 0.0, 0.0) * Eigen::AngleAxisd(0.2, Vector3d::UnitZ());
     const auto result = constraint->CalcClosest(input);
     EXPECT_NEAR(0.1, result.translation().x(), kEpsilon);
@@ -200,7 +203,7 @@ TEST_F(TsrLinkConstraintTest, CalcClosestTest) {
     EXPECT_NEAR(0.2, result.linear().eulerAngles(0, 1, 2)[2], kEpsilon);
   }
   {
-    // Translation is outside MAX
+    // translation is outside max
     const Affine3d input = Eigen::Translation3d(1.1, 0.0, 0.0) * Eigen::AngleAxisd(0.2, Vector3d::UnitZ());
     const auto result = constraint->CalcClosest(input);
     EXPECT_NEAR(1.0, result.translation().x(), kEpsilon);
@@ -211,7 +214,7 @@ TEST_F(TsrLinkConstraintTest, CalcClosestTest) {
     EXPECT_NEAR(0.2, result.linear().eulerAngles(0, 1, 2)[2], kEpsilon);
   }
   {
-    // Translation is outside the min
+    // translation is outside min
     const Affine3d input = Eigen::Translation3d(-1.1, 0.0, 0.0) * Eigen::AngleAxisd(0.2, Vector3d::UnitZ());
     const auto result = constraint->CalcClosest(input);
     EXPECT_NEAR(-1.0, result.translation().x(), kEpsilon);
@@ -222,7 +225,7 @@ TEST_F(TsrLinkConstraintTest, CalcClosestTest) {
     EXPECT_NEAR(0.2, result.linear().eulerAngles(0, 1, 2)[2], kEpsilon);
   }
   {
-    // Rotation is outside MAX
+    // rotation is outside max
     const Affine3d input = Eigen::Translation3d(0.1, 0.0, 0.0) * Eigen::AngleAxisd(0.6, Vector3d::UnitZ());
     const auto result = constraint->CalcClosest(input);
     EXPECT_NEAR(0.1, result.translation().x(), kEpsilon);
@@ -233,7 +236,7 @@ TEST_F(TsrLinkConstraintTest, CalcClosestTest) {
     EXPECT_NEAR(0.5, result.linear().eulerAngles(0, 1, 2)[2], kEpsilon);
   }
   {
-    // Rotation is outside the min
+    // rotation is outside min
     const Affine3d input = Eigen::Translation3d(0.1, 0.0, 0.0) * Eigen::AngleAxisd(-0.6, Vector3d::UnitZ());
     const auto result = constraint->CalcClosest(input);
     EXPECT_NEAR(0.1, result.translation().x(), kEpsilon);
@@ -306,7 +309,7 @@ TEST_F(RotationFirstTsrLinkConstraintTest, DisplacementTest) {
 // check the calucuration result of closest pose to constraint
 TEST_F(RotationFirstTsrLinkConstraintTest, CalcClosestTest) {
   {
-    // As it is in TSR, just as it is
+    // Inside tsr, as is
     const Affine3d in_tsr_sample =
         Eigen::Translation3d(std::cos(0.5), std::sin(0.5), 0.0) * Eigen::AngleAxisd(0.5, Eigen::Vector3d::UnitZ());
     const auto result = tsr_const_->CalcClosest(in_tsr_sample);

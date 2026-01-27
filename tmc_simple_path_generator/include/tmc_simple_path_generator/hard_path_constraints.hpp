@@ -45,13 +45,19 @@ class HardPathLinkConstraints {
   explicit HardPathLinkConstraints(const rclcpp::Node::SharedPtr& node);
   ~HardPathLinkConstraints() = default;
 
-  // Apply any of Link_constraints restriction conditions to dst_trajectory
+  // Apply one of the constraints from link_constraints to dst_trajectory
   bool ConstrainTrajectory(const std::vector<tmc_robot_local_planner::ILinkConstraint::Ptr>& link_constraints,
                            const SamplingParameters::Ptr& params,
                            tmc_manipulation_types::TimedRobotTrajectory& dst_trajectory);
 
+  bool ConstrainTrajectory(const std::vector<tmc_robot_local_planner::ILinkConstraint::Ptr>& link_constraints,
+                           const SamplingParameters::Ptr& params,
+                           uint32_t initial_state_offset,
+                           uint32_t goal_state_offset,
+                           tmc_manipulation_types::TimedRobotTrajectory& dst_trajectory);
+
  private:
-  // IK, use Single Thread implementation for the time being
+  // IK, for now use the single-thread implementation
   SampleGoalGenerator::Ptr closest_sampler_;
 
   std::optional<Eigen::Affine3d> CalculateOriginToClosest(
@@ -91,6 +97,37 @@ class GoalRelativeLinearConstraint {
   rclcpp::Clock::SharedPtr clock_;
 
   double linear_step_;
+
+  // FK
+  pluginlib::ClassLoader<tmc_robot_kinematics_model::IRobotKinematicsModel> fk_loader_;
+  tmc_robot_kinematics_model::IRobotKinematicsModel::Ptr robot_;
+
+  // IK
+  SampleGoalGenerator::Ptr sampler_;
+};
+
+
+class InitialMotionLinearConstraint {
+ public:
+  using Ptr = std::shared_ptr<InitialMotionLinearConstraint>;
+
+  explicit InitialMotionLinearConstraint(const rclcpp::Node::SharedPtr& node);
+  ~InitialMotionLinearConstraint() = default;
+
+  std::optional<std::vector<tmc_manipulation_types::RobotState>> SampleLinearPath(
+      const tmc_robot_local_planner::LinearConstraintWithPose& linear_constraint,
+      const tmc_manipulation_types::RobotState& initial_state,
+      const SamplingParameters::Ptr& params);
+
+  void set_is_from_random_state(bool value) { is_from_random_state_ = value; }
+
+ private:
+  rclcpp::Logger logger_;
+  rclcpp::Clock::SharedPtr clock_;
+
+  double linear_step_;
+  double distance_threshold_;
+  bool is_from_random_state_;
 
   // FK
   pluginlib::ClassLoader<tmc_robot_kinematics_model::IRobotKinematicsModel> fk_loader_;

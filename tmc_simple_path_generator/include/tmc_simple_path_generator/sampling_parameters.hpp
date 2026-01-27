@@ -25,10 +25,11 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
-/// @brief Parameters for track generation
+/// @brief Parameters for trajectory generation
 #ifndef TMC_SIMPLE_PATH_GENERATOR_SAMPLING_PARAMETERS_HPP_
 #define TMC_SIMPLE_PATH_GENERATOR_SAMPLING_PARAMETERS_HPP_
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -45,25 +46,33 @@ struct SamplingParameters {
 
   // Joint name
   tmc_manipulation_types::NameSeq joint_names;
-  // Bogie name
+  // Cart name
   tmc_manipulation_types::NameSeq base_names;
   // Joint weight
   Eigen::VectorXd joint_weights;
-  // Bogie weight
+  // Cart weight
   Eigen::VectorXd base_weights;
-  // Joint maximum limit
+  // Upper limit of joint
   std::vector<double> joint_limit_upper;
-  // Lower limit of joints
+  // Lower limit of joint
   std::vector<double> joint_limit_lower;
-  // Bogie movement type
+  // Cart movement type
   int base_movement_type;
+  // Whether to use cart movement or not
+  bool enable_base;
+
+  std::map<std::string, std::vector<std::string>> ik_joints;  // end_effector -> ik_joints
 
   SamplingParameters() {}
   explicit SamplingParameters(const rclcpp::Node::SharedPtr& node);
 
-  SamplingParameters::Ptr RemoveJoints(const std::vector<std::string>& ignore_joints) const;
+  void UpdateBaseMovementType(bool enable_base);
+  void SetDefaultBaseMovementType(int movement_type) {
+    default_base_movement_type_ = movement_type;
+  }
 
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+ private:
+  int default_base_movement_type_;
 };
 
 }  // namespace tmc_simple_path_generator

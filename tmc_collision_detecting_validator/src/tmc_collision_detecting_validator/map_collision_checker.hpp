@@ -37,6 +37,7 @@ DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 
 #include <tmc_manipulation_types/manipulation_types.hpp>
+#include <tmc_utils/caching_subscriber.hpp>
 #include <tmc_utils/parameters.hpp>
 
 namespace tmc_collision_detecting_validator {
@@ -49,10 +50,23 @@ class MapCollisionChecker {
   MapCollisionChecker(const rclcpp::Node::SharedPtr& node, const std::string& map_topic_name,
                       const tmc_utils::DynamicParameter<bool>::Ptr& verbose);
 
-  /// @brief Feasibility Check Stop immediately after checking collision
-  bool IsFeasible(const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
-                  std::function<bool()> interrupt);
+  enum class Result {
+    kFeasible = 0,
+    kCollision = 1,
+    kInterrupted = 2,
+    kInvalid = 3,
+  };
 
+  /// @brief Feasibility Check Stop immediately after checking collision
+  /// @param trajectory Timed Trajectory
+  /// @param interrupt interruption function
+  /// @param error_message_out Error message
+  /// @return bool If the trajectory is not in the collision, return true
+  Result IsFeasible(const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
+                    std::function<bool()> interrupt,
+                    std::string& error_message_out) const;
+
+  void UpdateMap();
   void set_map_to_origin(const Eigen::Affine3d& map_to_origin) { map_frame_to_trajectory_origin_ = map_to_origin; }
   std::string GetMapFrame() const { return map_frame_; }
 
@@ -63,10 +77,8 @@ class MapCollisionChecker {
 
   bool IsRobotInCollision(const Eigen::Affine3d& robot_position) const;
 
-  void MapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
-  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
+  tmc_utils::CachingSubscriber<nav_msgs::msg::OccupancyGrid>::Ptr map_cache_;
 
-  rclcpp::Logger logger_;
   tmc_utils::DynamicParameter<bool>::Ptr verbose_;
   std::string map_topic_name_;
 };

@@ -37,33 +37,51 @@ DAMAGE.
 
 namespace tmc_robot_local_planner_utils {
 
-// /// @brief Get the MAP origin
-// /// @param MAP map
-// /// @return Origin of the map
+// /// @brief Get the map origin
+// /// @param map Map
+// /// @return Map origin
 // Eigen::Affine2d GetMapOrigin(const tmc_manipulation_types::OccupancyGrid& map);
 
-/// @brief Get the tracking point at the end
+/// @brief Get the last trajectory point
+/// @param trajectory Joint trajectory
+/// @param state_out Last trajectory point
+/// @return Function success or failure
 bool GetLastPoint(const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
                   tmc_manipulation_types::RobotState& state_out);
 
-/// @brief Erase orbit points that exceed the specified time
+/// @brief Erase trajectory points exceeding the specified time
+/// @param time Threshold time for erasure
+/// @param trajectory Returns a list of processed joint trajectories from the input list of joint trajectories
 void DeleteTrajectoryPointsAtTime(double time,
                                   tmc_manipulation_types::TimedRobotTrajectory& trajectory);
 
-/// @brief Erase orbital point in the specified score in the order of time stamps
+/// @brief Erase trajectory points in order of oldest timestamps for the specified number of points
+/// @param num Number of points to erase
+/// @param trajectory Returns a list of processed joint trajectories from the input list of joint trajectories
+/// @return Function success or failure
 bool DeleteTrajectoryPointsAtPoint(uint32_t num, trajectory_msgs::msg::JointTrajectory& trajectory);
 
-/// @brief Joint orbital point and BASE orbital point determine whether they have the same time
+/// @brief Determine if joint trajectory points and base trajectory points have the same time
+/// @param trajectory Joint trajectory
+/// @return Result of the same time determination
 bool CheckTimeFromStarts(const tmc_manipulation_types::TimedRobotTrajectory& trajectory);
 
-/// @brief From the input orbit to the track point with the minimum time in it, larger than the current time+cycle
+/// @brief Return the trajectory point with the smallest time greater than the current time + period from the input trajectory
+/// @param trajectory Joint trajectory
+/// @param target_time Current time + period time
+/// @param connectable_time Connectable trajectory time
+/// @param state_out Trajectory point close to current time + period
+/// @return Function success or failure
 bool SearchConnectablePoint(
     const tf2::Stamped<tmc_manipulation_types::TimedRobotTrajectory>& trajectory,
     const rclcpp::Time& target_time,
     rclcpp::Time& connectable_time,
     tf2::Stamped<tmc_manipulation_types::RobotState>& state_out);
 
-/// @brief Shift the orbit time
+/// @brief Shift the trajectory time
+/// @param trajectory Joint trajectory
+/// @param shift_time Time to shift
+/// @param trajectory_out Trajectory point close to current time + period
 void ShiftTrajectoryTimes(
     const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
     double shift_time,

@@ -36,6 +36,7 @@ DAMAGE.
 
 namespace {
 constexpr double kEpsilon = 1.0e-6;
+constexpr double kDefaultWidth = 0.02;
 
 std::vector<visualization_msgs::msg::Marker> ExtractMarkers(const visualization_msgs::msg::MarkerArray& marker_array,
                                                             const std::string& target_frame_id) {
@@ -46,6 +47,17 @@ std::vector<visualization_msgs::msg::Marker> ExtractMarkers(const visualization_
     }
   }
   return markers;
+}
+
+std::vector<visualization_msgs::msg::Marker> ExtractArrowMarkers(
+    const std::vector<visualization_msgs::msg::Marker>& markers_in) {
+  std::vector<visualization_msgs::msg::Marker> markers_out;
+  for (const auto& marker : markers_in) {
+    if (marker.type == visualization_msgs::msg::Marker::ARROW) {
+      markers_out.push_back(marker);
+    }
+  }
+  return markers_out;
 }
 
 void ValidateDeleteAll(const visualization_msgs::msg::MarkerArray& marker_array) {
@@ -82,6 +94,11 @@ void ValidatePoint(const geometry_msgs::msg::Point& msg,
   EXPECT_DOUBLE_EQ(msg.z, z);
 }
 
+void ValidatePoint(const geometry_msgs::msg::Point& msg,
+                   const Eigen::Vector3d& vec) {
+  ValidatePoint(msg, vec.x(), vec.y(), vec.z());
+}
+
 void ValidateColor(const std_msgs::msg::ColorRGBA& msg,
                    double r, double g, double b, double a) {
   EXPECT_DOUBLE_EQ(msg.r, r);
@@ -101,7 +118,7 @@ void ValidateAxisMarker(const visualization_msgs::msg::Marker& marker,
   EXPECT_EQ(marker.action, visualization_msgs::msg::Marker::ADD);
   EXPECT_DOUBLE_EQ(marker.scale.x, line_width);
   EXPECT_DOUBLE_EQ(marker.lifetime.sec, lifetime);
-  // Really, the Points corresponding to R is x 0.0 and LINE_LENGTH, and it is ideal to test like that, but I will not do my best.
+  // Ideally, the points corresponding to r would be x at 0.0 and line_length, but we won't go that far.
   EXPECT_EQ(marker.points.size(), 6);
   ValidatePoint(marker.points[0], 0.0, 0.0, 0.0);
   ValidatePoint(marker.points[1], line_length, 0.0, 0.0);
@@ -165,6 +182,27 @@ void ValidateGoalMarker(const visualization_msgs::msg::Marker& marker_1,
     ValidateAxisMarker(marker_2, ns, pose, line_length, line_width, alpha, lifetime);
   }
 }
+
+void ValidateArrowMarker(const visualization_msgs::msg::Marker& marker,
+                         const std::string& ns,
+                         const Eigen::Vector3d& start_point,
+                         const Eigen::Vector3d& end_point,
+                         double line_width,
+                         double color_r,
+                         double color_g,
+                         double color_b,
+                         int32_t lifetime) {
+  EXPECT_EQ(marker.ns, ns);
+  EXPECT_EQ(marker.type, visualization_msgs::msg::Marker::ARROW);
+  EXPECT_EQ(marker.action, visualization_msgs::msg::Marker::ADD);
+  ASSERT_EQ(marker.points.size(), 2);
+  ValidatePoint(marker.points[0], start_point);
+  ValidatePoint(marker.points[1], end_point);
+  EXPECT_DOUBLE_EQ(marker.scale.x, line_width);
+  EXPECT_DOUBLE_EQ(marker.scale.y, line_width * 2.0);
+  ValidateColor(marker.color, color_r, color_g, color_b, 1.0);
+  EXPECT_DOUBLE_EQ(marker.lifetime.sec, lifetime);
+}
 }  // namespace
 
 namespace tmc_robot_local_planner_visualization {
@@ -212,7 +250,7 @@ void LinkConstraintsVisualizationTest::SetUp() {
 }
 
 TEST_F(LinkConstraintsVisualizationTest, RotationFirst) {
-  // Here, I will do it with Hard/Soft_link_constraints
+  // Here, we'll do it with hard/soft_link_constraints.
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_link_constraints.resize(1);
   msg.hard_link_constraints[0].header.frame_id = "frame_1";
@@ -238,17 +276,17 @@ TEST_F(LinkConstraintsVisualizationTest, RotationFirst) {
     SCOPED_TRACE("");
     const auto markers = ExtractMarkers(msgs_[1], "frame_1");
     ASSERT_EQ(markers.size(), 2);
-    // Since Rotation_first is False, the position is first
+    // Since rotation_first is false, position comes first.
     const Eigen::Affine3d pose = Eigen::Translation3d(0.1 + 0.3, 0.0, 0.0)
                                * Eigen::AngleAxisd(0.5, Eigen::Vector3d::UnitZ())
                                * Eigen::Translation3d(0.2, 0.0, 0.0);
-    ValidateGoalMarker(markers[0], markers[1], "hard_link_constraints", pose, 0.2, 0.02, 1.0, 0);
+    ValidateGoalMarker(markers[0], markers[1], "hard_link_constraints", pose, 0.2, kDefaultWidth, 1.0, 0);
   }
   {
     SCOPED_TRACE("");
     const auto markers = ExtractMarkers(msgs_[1], "frame_2");
     ASSERT_EQ(markers.size(), 2);
-    // Since Rotation_first is true, the position is later
+    // Since rotation_first is true, position comes later.
     const Eigen::Affine3d pose = Eigen::Translation3d(0.1, 0.0, 0.0)
                                * Eigen::AngleAxisd(0.5, Eigen::Vector3d::UnitZ())
                                * Eigen::Translation3d(0.3 + 0.2, 0.0, 0.0);
@@ -257,15 +295,15 @@ TEST_F(LinkConstraintsVisualizationTest, RotationFirst) {
 }
 
 TEST_F(LinkConstraintsVisualizationTest, PositionRange) {
-  // Here, I will do it with hard_path_link_constraints
+  // Here, we'll do it with hard_path_link_constraints.
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_path_link_constraints.resize(2);
-  // The case with one point was omitted because it was performed by RotationFirst.
-  // A case with a narrow min/max bounds
+  // The case with one position point was done with RotationFirst, so it's omitted.
+  // Case where position min/max bounds are narrow.
   msg.hard_path_link_constraints[0].header.frame_id = "frame_3";
   msg.hard_path_link_constraints[0].tsr.min_bounds[0] = 0.0;
   msg.hard_path_link_constraints[0].tsr.max_bounds[0] = 0.1;
-  // Case with a wide range of min/max bounds
+  // Case where position min/max bounds are wide.
   msg.hard_path_link_constraints[1].header.frame_id = "frame_4";
   msg.hard_path_link_constraints[1].tsr.min_bounds[1] = -1.0;
   msg.hard_path_link_constraints[1].tsr.max_bounds[1] = 1.0;
@@ -279,11 +317,11 @@ TEST_F(LinkConstraintsVisualizationTest, PositionRange) {
   {
     SCOPED_TRACE("");
     const auto markers = ExtractMarkers(msgs_[1], "frame_3");
-    // If the min/max of the position is narrow, it will be two points, min/max.
+    // When position min/max are narrow, it becomes two points at min/max.
     ASSERT_EQ(markers.size(), 2);
     std::vector<double> positions;
     for (const auto& marker : markers) {
-      ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, 0.02, 1.0, 0);
+      ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, kDefaultWidth, 1.0, 0);
       positions.push_back(marker.pose.position.x);
     }
     std::sort(positions.begin(), positions.end());
@@ -293,11 +331,11 @@ TEST_F(LinkConstraintsVisualizationTest, PositionRange) {
   {
     SCOPED_TRACE("");
     const auto markers = ExtractMarkers(msgs_[1], "frame_4");
-    // If the min/max of the position is wide, it will be three points in min/max/intermediate.
+    // When position min/max are wide, it becomes three points at min/max/middle.
     ASSERT_EQ(markers.size(), 3);
     std::vector<double> positions;
     for (const auto& marker : markers) {
-      ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, 0.02, 1.0, 0);
+      ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, kDefaultWidth, 1.0, 0);
       positions.push_back(marker.pose.position.y);
     }
     std::sort(positions.begin(), positions.end());
@@ -310,12 +348,12 @@ TEST_F(LinkConstraintsVisualizationTest, PositionRange) {
 TEST_F(LinkConstraintsVisualizationTest, RotationRange) {
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_path_link_constraints.resize(2);
-  // The case with one point was omitted because it was performed by RotationFirst.
-  // Case with narrow rotation min/max bounds
+  // The case with one rotation point was done with RotationFirst, so it's omitted.
+  // Case where rotation min/max bounds are narrow.
   msg.hard_path_link_constraints[0].header.frame_id = "frame_5";
   msg.hard_path_link_constraints[0].tsr.min_bounds[3] = 0.0;
   msg.hard_path_link_constraints[0].tsr.max_bounds[3] = 0.1;
-  // Case with a wide rotation min/max bounds
+  // Case where rotation min/max bounds are wide.
   msg.hard_path_link_constraints[1].header.frame_id = "frame_6";
   msg.hard_path_link_constraints[1].tsr.min_bounds[4] = -1.0;
   msg.hard_path_link_constraints[1].tsr.max_bounds[4] = 1.0;
@@ -329,11 +367,11 @@ TEST_F(LinkConstraintsVisualizationTest, RotationRange) {
   {
     SCOPED_TRACE("");
     const auto markers = ExtractMarkers(msgs_[1], "frame_5");
-    // If the rotation min/max is narrow, it will be two points, min/max.
+    // When rotation min/max are narrow, it becomes two points at min/max.
     ASSERT_EQ(markers.size(), 2);
     std::vector<double> quaternions;
     for (const auto& marker : markers) {
-      ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, 0.02, 1.0, 0);
+      ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, kDefaultWidth, 1.0, 0);
       quaternions.push_back(2.0 * std::asin(marker.pose.orientation.x));
     }
     std::sort(quaternions.begin(), quaternions.end());
@@ -343,11 +381,11 @@ TEST_F(LinkConstraintsVisualizationTest, RotationRange) {
   {
     SCOPED_TRACE("");
     const auto markers = ExtractMarkers(msgs_[1], "frame_6");
-    // If the rotation min/max is wide, it is placed at equal intervals between min/max.
+    // When rotation min/max are wide, they are evenly spaced between min/max.
     ASSERT_GE(markers.size(), 3);
     std::vector<double> quaternions;
     for (const auto& marker : markers) {
-      ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, 0.02, 1.0, 0);
+      ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, kDefaultWidth, 1.0, 0);
       quaternions.push_back(2.0 * std::asin(marker.pose.orientation.y));
     }
     std::sort(quaternions.begin(), quaternions.end());
@@ -383,7 +421,7 @@ TEST_F(LinkConstraintsVisualizationTest, MultiRange) {
   ASSERT_EQ(markers.size(), 2 * 3 * 2);
   std::vector<std::array<double, 3>> values;
   for (const auto& marker : markers) {
-    ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, 0.02, 1.0, 0);
+    ValidateAxisMarker(marker, "hard_path_link_constraints", 0.2, kDefaultWidth, 1.0, 0);
     values.push_back({marker.pose.position.x, marker.pose.position.y, 2.0 * std::asin(marker.pose.orientation.x)});
   }
   for (auto i = 0u; i < values.size(); ++i) {
@@ -397,6 +435,71 @@ TEST_F(LinkConstraintsVisualizationTest, MultiRange) {
       EXPECT_GT(diff_abs, 0.01);
     }
   }
+}
+
+TEST_F(LinkConstraintsVisualizationTest, InitialMotionLinearConstraint) {
+  tmc_planning_msgs::msg::Constraints msg;
+  msg.initial_motion_linear_constraint.end_frame_id = "frame_8";
+  msg.initial_motion_linear_constraint.reference.header.frame_id = "frame_9";
+  msg.initial_motion_linear_constraint.reference.pose.position.x = 0.1;
+  msg.initial_motion_linear_constraint.reference.pose.position.y = 0.2;
+  msg.initial_motion_linear_constraint.reference.pose.position.z = 0.3;
+  msg.initial_motion_linear_constraint.reference.pose.orientation.y = 1.0;
+  msg.initial_motion_linear_constraint.reference.pose.orientation.w = 0.0;
+  msg.initial_motion_linear_constraint.axis.z = 0.4;
+  msg.initial_motion_linear_constraint.distance = 0.5;
+
+  pub_->publish(msg);
+  ASSERT_TRUE(WaitForMarker());
+
+  ValidateDeleteAll(msgs_[0]);
+  ValidateMarkerArrayId(msgs_[1], "hard_link_constraints");
+
+  SCOPED_TRACE("");
+  const auto markers = ExtractMarkers(msgs_[1], "frame_9");
+  ASSERT_EQ(markers.size(), 1);
+  ValidateArrowMarker(markers[0],
+                      "hard_link_constraints",
+                      Eigen::Vector3d(0.1, 0.2, 0.3),
+                      Eigen::Vector3d(0.1, 0.2, -0.2),
+                      kDefaultWidth,
+                      0.0, 1.0, 1.0,
+                      0);
+}
+
+TEST_F(LinkConstraintsVisualizationTest, GoalRelativeLinearConstraint) {
+  tmc_planning_msgs::msg::Constraints msg;
+  msg.hard_link_constraints.resize(1);
+  msg.hard_link_constraints[0].header.frame_id = "frame_3";
+  msg.hard_link_constraints[0].tsr.min_bounds[0] = 0.0;
+  msg.hard_link_constraints[0].tsr.max_bounds[0] = 0.1;
+  msg.goal_relative_linear_constraint.end_frame_id = "frame_4";
+  msg.goal_relative_linear_constraint.axis.z = -0.2;
+  msg.goal_relative_linear_constraint.distance = 0.3;
+
+  pub_->publish(msg);
+  ASSERT_TRUE(WaitForMarker());
+  ValidateDeleteAll(msgs_[0]);
+  ValidateMarkerArrayId(msgs_[1], "hard_link_constraints");
+
+  SCOPED_TRACE("");
+  const auto markers = ExtractArrowMarkers(ExtractMarkers(msgs_[1], "frame_3"));
+  ASSERT_EQ(markers.size(), 2);
+  // Generated for each goal marker, the goal has a narrow position range, so it's two points at both ends.
+  ValidateArrowMarker(markers[0],
+                      "hard_link_constraints",
+                      Eigen::Vector3d(0.0, 0.0, -0.3),
+                      Eigen::Vector3d(0.0, 0.0, 0.0),
+                      kDefaultWidth,
+                      1.0, 1.0, 0.0,
+                      0);
+  ValidateArrowMarker(markers[1],
+                      "hard_link_constraints",
+                      Eigen::Vector3d(0.1, 0.0, -0.3),
+                      Eigen::Vector3d(0.1, 0.0, 0.0),
+                      kDefaultWidth,
+                      1.0, 1.0, 0.0,
+                      0);
 }
 
 TEST_F(LinkConstraintsVisualizationTest, EmptyConstraints) {

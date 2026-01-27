@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief Test of LocalPathEvaluator
 
 #include <string>
 #include <vector>
@@ -47,7 +48,7 @@ const std::vector<std::string> kJointNames = {"arm", "wrist", "head"};
 
 namespace tmc_local_path_evaluator {
 
-// Differences in behavior due to differences in parameters are performed by node testing.
+// Differences in behavior due to parameter variations are tested at the node level
 TEST(LocalPathEvaluatorPluginTest, Evaluate) {
   pluginlib::ClassLoader<tmc_robot_local_planner::IEvaluator> loader(
       "tmc_robot_local_planner", "tmc_robot_local_planner::IEvaluator");
@@ -203,7 +204,7 @@ void LocalPathEvaluatorTest::TearDown() {
   WaitForFutureComplete(future_response);
 }
 
-// 3 joints 3 points 3 track score calculation .lengthbase only
+// Score calculation for 3 joints, 3 points, 3 trajectories. LengthBase only
 TEST_F(LocalPathEvaluatorTest, ThreeTrajectories) {
   auto result = SendGoalSync(robot_trajectories_, action_msgs::msg::GoalStatus::STATUS_SUCCEEDED);
 
@@ -253,7 +254,7 @@ TEST_F(LocalPathEvaluatorTest, UpdateArmWeight) {
   EXPECT_NEAR(robot_trajectories[2].joint_trajectory.points[0].positions[2], 0.0, 0.01);
 }
 
-// Change the weight of the bogie
+// Change the weight of the cart
 TEST_F(LocalPathEvaluatorTest, UpdateBaseWeight) {
   robot_trajectories_[0].multi_dof_joint_trajectory.points[0].transforms[0].translation.x = 0.3;
   robot_trajectories_[1].multi_dof_joint_trajectory.points[0].transforms[0].translation.x = 0.2;
@@ -278,7 +279,45 @@ TEST_F(LocalPathEvaluatorTest, UpdateBaseWeight) {
   EXPECT_NEAR(robot_trajectories[2].joint_trajectory.points[2].positions[2], 0.6, 0.01);
 }
 
-// 1 In the case of orbit input, return it as it is
+// // Score calculation for 3 joints, 3 points, 3 trajectories. LengthBase and SoftJointConstraint combined
+// // Set SoftJointConstraint to prioritize the third trajectory
+// TEST_F(LocalPathEvaluatorTest, ThreeTrajectoriesWithMultiScoreCalculation) {
+//   // setup
+//   tmc_planning_msgs::RangeJointConstraint soft_joint_constraint;
+//   soft_joint_constraint.min.joint_state.name.push_back("head");
+//   soft_joint_constraint.min.joint_state.position.push_back(4.55);
+//   soft_joint_constraint.max.joint_state.name.push_back("head");
+//   soft_joint_constraint.max.joint_state.position.push_back(4.65);
+//   tmc_planning_msgs::Constraints constraints;
+//   constraints.soft_joint_constraints.push_back(soft_joint_constraint);
+//   tmc_planning_msgs::EvaluateRobotTrajectoriesGoal goal;
+//   goal.robot_trajectories = robot_trajectories_;
+//   goal.constraints = constraints;
+
+//   SendGoalAndCheckResult(goal, actionlib::SimpleClientGoalState::SUCCEEDED);
+
+//   tmc_planning_msgs::EvaluateRobotTrajectoriesResult result;
+//   result.robot_trajectories = evaluator_->getResult()->robot_trajectories;
+
+//   std::vector<PointPositions> reverse_joint_torajectories;
+//   reverse_joint_torajectories.reserve(joint_torajectories_.size());
+//   std::reverse_copy(joint_torajectories_.begin(), joint_torajectories_.end(),
+//                     std::back_inserter(reverse_joint_torajectories));
+
+//   EXPECT_EQ(result.robot_trajectories.size(), 3);
+//   for (const auto& trajectory : result.robot_trajectories | boost::adaptors::indexed()) {
+//     EXPECT_EQ(trajectory.value().joint_trajectory.points.size(), 3);
+//     EXPECT_EQ(trajectory.value().multi_dof_joint_trajectory.points.size(), 3);
+//     for (const auto& point : trajectory.value().joint_trajectory.points | boost::adaptors::indexed()) {
+//       for (uint32_t i = 0; i < trajectory.value().joint_trajectory.joint_names.size(); ++i) {
+//         EXPECT_NEAR(point.value().positions[i],
+//                     reverse_joint_torajectories[trajectory.index()][point.index()][i], 0.01);
+//       }
+//     }
+//   }
+// }
+
+// Return as is for single trajectory input
 TEST_F(LocalPathEvaluatorTest, OneTrajectory) {
   robot_trajectories_.resize(1);
   auto result = SendGoalSync(robot_trajectories_, action_msgs::msg::GoalStatus::STATUS_SUCCEEDED);
@@ -293,7 +332,7 @@ TEST_F(LocalPathEvaluatorTest, OneTrajectory) {
   }
 }
 
-// Failure if the orbit is empty
+// Failure if the trajectory is empty
 TEST_F(LocalPathEvaluatorTest, EmptyTrajectories) {
   tmc_planning_msgs::action::EvaluateRobotTrajectories::Goal goal;
 
@@ -304,7 +343,7 @@ TEST_F(LocalPathEvaluatorTest, EmptyTrajectories) {
   EXPECT_FALSE(goal_handle.get());
 }
 
-// 3 Failure if you could not calculate the score in all orbit
+// Failure if score calculation could not be done for all 3 trajectories
 TEST_F(LocalPathEvaluatorTest, InvalidAllTrajectories) {
   geometry_msgs::msg::Transform transform;
   transform.translation.x = 2.0;
@@ -318,7 +357,7 @@ TEST_F(LocalPathEvaluatorTest, InvalidAllTrajectories) {
   SendGoalSync(robot_trajectories_, action_msgs::msg::GoalStatus::STATUS_ABORTED);
 }
 
-// 3 If the orbit score is not possible, return the remaining 2 orbit.
+// If score calculation could not be done for 1 out of 3 trajectories, return the remaining 2 trajectories
 TEST_F(LocalPathEvaluatorTest, InvalidOneTrajectory) {
   geometry_msgs::msg::Transform transform;
   transform.translation.x = 2.0;
@@ -341,10 +380,10 @@ TEST_F(LocalPathEvaluatorTest, InvalidOneTrajectory) {
   }
 }
 
-// Become a preempted in CancelGoal
+// Becomes Preempted with cancelGoal
 TEST_F(LocalPathEvaluatorTest, EvaluatePreempted) {
-  // Throw about 100,000 tracks to prevent it from becoming a SUCCEEDEDED before throwing a cancellation
-  // With i9-10900K, I was able to cancel properly.
+  // Throw about 100,000 trajectories to prevent it from becoming SUCCEEDED before throwing a cancel
+  // With i9-10900K, this properly canceled
   for (auto i = 0; i < 15; ++i) {
     robot_trajectories_.insert(robot_trajectories_.end(), robot_trajectories_.begin(), robot_trajectories_.end());
   }

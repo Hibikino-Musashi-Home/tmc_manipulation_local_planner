@@ -38,12 +38,19 @@ DAMAGE.
 
 namespace tmc_robot_local_planner_utils {
 
-/// @brief Extract partial timed_joint_trajectory from Trajectory for the entire robot
+/// @brief Extract a partial timed_joint_trajectory from the robot's entire trajectory
+/// @param whole_trajectory The robot's entire trajectory
+/// @param base_coordinates
+/// @return timed_joint_trajectory Throws an exception if joint_names is empty
 tmc_manipulation_types::TimedJointTrajectory ExtractMultiDOFJointTrajectory(
     const tmc_manipulation_types::TimedMultiDOFJointTrajectory& whole_trajectory,
     const tmc_manipulation_types::NameSeq& coordinates);
 
-/// @brief Extract the orbit after the specified time
+/// @brief Extract the trajectory after the specified time
+/// @param trajectory Input trajectory
+/// @param target_time Previously played trajectory time
+/// @param trajectory_out Previously played trajectory
+/// @return Success or failure of the function
 bool ExtractTrajectoryAtTime(
     const tf2::Stamped<tmc_manipulation_types::TimedRobotTrajectory>& trajectory,
     const rclcpp::Time& target_time,

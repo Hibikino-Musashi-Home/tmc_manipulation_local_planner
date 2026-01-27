@@ -75,6 +75,13 @@ TEST_F(TimeBaseScoreCalculationTest, Calculate) {
   auto score = score_calculation_->Calculate(GenerateTestTrajectory(), tmc_robot_local_planner::Constraints());
   EXPECT_TRUE(static_cast<bool>(score));
   EXPECT_DOUBLE_EQ(score.value(), 6.0);
+
+  auto trajectory = GenerateTestTrajectory();
+  trajectory.joint_trajectory.joint_names.clear();
+  trajectory.joint_trajectory.points.clear();
+  score = score_calculation_->Calculate(trajectory, tmc_robot_local_planner::Constraints());
+  EXPECT_TRUE(static_cast<bool>(score));
+  EXPECT_DOUBLE_EQ(score.value(), 6.0);
 }
 
 TEST_F(TimeBaseScoreCalculationTest, CalculateByChangeScoreWeights) {

@@ -161,7 +161,7 @@ TEST_F(SoftJointConstraintScoreCalculationTest, OutsideJointAndBase) {
 
   const auto score = score_calculation_->Calculate(trajectory, GenerateTestConstraints());
   EXPECT_TRUE(static_cast<bool>(score));
-  // Regarding the specifications of RangeJointConstraint, the Normal, the Norm of each Norm
+  // According to the specifications of RangeJointConstraint, it becomes the sum of the norms of the joint and the carriage.
   EXPECT_NEAR(score.value(), std::sqrt(0.1 * 0.1 * 2) + std::sqrt(0.1 * 0.1 * 3), 1e-3);
 }
 

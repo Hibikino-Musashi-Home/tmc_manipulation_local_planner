@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief Length Base Score Calculation Class
 #ifndef TMC_LOCAL_PATH_EVALUATOR_LENGTH_BASE_SCORE_CALCULATION_HPP_
 #define TMC_LOCAL_PATH_EVALUATOR_LENGTH_BASE_SCORE_CALCULATION_HPP_
 
@@ -43,7 +44,7 @@ namespace tmc_local_path_evaluator {
 
 class LengthBaseScoreCalculation : public TrajectoryScoreCalculationBase {
  public:
-  /// @brief constructor
+  /// @brief Constructor
   LengthBaseScoreCalculation() {}
 
   /// @brief Destructor
@@ -54,7 +55,7 @@ class LengthBaseScoreCalculation : public TrajectoryScoreCalculationBase {
   bool InitializeImpl(const rclcpp::Node::SharedPtr& node,
                       const std::string& parameter_namespace) override;
 
-  /// @brief Score calculation
+  /// @brief Score Calculation
   boost::optional<double> CalculateImpl(
       const tmc_manipulation_types::TimedRobotTrajectory& trajectory,
       const tmc_robot_local_planner::Constraints& constraint) override;

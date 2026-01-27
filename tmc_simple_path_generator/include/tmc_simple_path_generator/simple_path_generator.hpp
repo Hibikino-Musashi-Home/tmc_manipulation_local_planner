@@ -55,7 +55,7 @@ namespace tmc_simple_path_generator {
 
 class SimplePathGeneratorPlugin : public tmc_robot_local_planner::IGenerator {
  public:
-  SimplePathGeneratorPlugin();
+  SimplePathGeneratorPlugin() = default;
   virtual ~SimplePathGeneratorPlugin() = default;
 
   void Initialize(const rclcpp::Node::SharedPtr& node) override;
@@ -63,44 +63,28 @@ class SimplePathGeneratorPlugin : public tmc_robot_local_planner::IGenerator {
   bool Generate(const tmc_robot_local_planner::Constraints& constraints,
                 const tmc_manipulation_types::RobotState& initial_state,
                 double normalized_velocity,
-                const std::vector<std::string>& ignore_joints,
+                bool enable_base,
                 std::function<bool()> interrupt,
                 std::vector<tmc_manipulation_types::TimedRobotTrajectory>& trajectories_out) override;
 
  private:
+  class SimplePathGeneratorImpl;
+  std::vector<std::shared_ptr<SimplePathGeneratorImpl>> impls_;
+
   // clock
   rclcpp::Clock::SharedPtr clock_;
 
-  // Generator timeout
+  // Timeout for the generator
   tmc_utils::DynamicParameter<double>::Ptr generate_timeout_;
-  // Number of tracks aiming for straight goals
+  // Number of trajectories aiming straight for the goal
   tmc_utils::DynamicParameter<int64_t>::Ptr max_simple_trajectory_num_;
-  // If the maximum number of trajectory to be generated is 0 or less, it will be generated to a timeout
+  // Maximum number of trajectories to generate; if 0 or less, generate until timeout
   tmc_utils::DynamicParameter<int64_t>::Ptr max_trajectory_num_;
-  // Dynamic parameter setting handle
+  // Handle for dynamic parameter setting
   std::vector<rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr> set_param_handlers_;
 
-  // SampleGoalGenerator Lauder
-  pluginlib::ClassLoader<SampleGoalGeneratorBase> sample_goal_generator_loader_;
-  // SampleGoalGenerator instance
-  SampleGoalGeneratorBase::Ptr sample_goal_generator_;
-
-  // SampleMidDlegenerator loader
-  pluginlib::ClassLoader<ISampleMiddleGenerator> sample_middle_generator_loader_;
-  // SampleMiddleGenerator instance
-  ISampleMiddleGenerator::Ptr sample_middle_generator_;
-
-  // Orbit -generated parameters
+  // Parameters for trajectory generation
   SamplingParameters::Ptr sampling_params_;
-
-  // TrajectoryInterPolator loader
-  pluginlib::ClassLoader<ITrajectoryInterpolator> trajectory_interpolator_loader_;
-  // TrajectoryInterPolator instance
-  ITrajectoryInterpolator::Ptr trajectory_interpolator_;
-
-  // Restraint of the specified frame route
-  HardPathLinkConstraints::Ptr hard_path_link_constraints_;
-  GoalRelativeLinearConstraint::Ptr goal_relative_linear_constraint_;
 };
 
 class SimplePathGenerator : public rclcpp::Node {
@@ -110,7 +94,7 @@ class SimplePathGenerator : public rclcpp::Node {
 
   virtual ~SimplePathGenerator() = default;
 
-  // I want to do Shared_from_this, so initialize after instance generation
+  // To use shared_from_this, initialize after instance creation
   void Initialize();
 
  private:

@@ -44,6 +44,8 @@ tmc_simple_path_generator::SamplingParameters::Ptr GenerateTestParameters() {
   params->base_weights = Eigen::Vector3d(5.0, 5.0, 1.0);
   params->joint_limit_upper = {0.1, 0.2, 0.3};
   params->joint_limit_lower = {0.0, 0.1, 0.2};
+  params->SetDefaultBaseMovementType(tmc_manipulation_types::kPlanar);
+  params->UpdateBaseMovementType(true);
   return params;
 }
 
@@ -84,10 +86,10 @@ class PlanerMiddleStateGeneratorTest : public ::testing::Test {
 void PlanerMiddleStateGeneratorTest::SetUp() {
   node_ = rclcpp::Node::make_shared("test_node");
   sampler_ = std::make_shared<PlanerMiddleStateGenerator>();
-  sampler_->Initialize(node_, GenerateTestParameters());
+  sampler_->Initialize(node_);
 }
 
-// If the random width is 0, the arm is in its position, the bogie is between the initial state and the middle of the goal.
+// When the random width is 0, the arm returns to that position, and the cart returns to the midpoint between the initial state and the goal state
 TEST_F(PlanerMiddleStateGeneratorTest, ComputeRandomMiddleStateZeroRange) {
   node_->set_parameter(rclcpp::Parameter("middle_state_base_position_range", 0.0));
   node_->set_parameter(rclcpp::Parameter("middle_state_base_rotation_range", 0.0));
@@ -99,7 +101,7 @@ TEST_F(PlanerMiddleStateGeneratorTest, ComputeRandomMiddleStateZeroRange) {
 
   const auto initial_state = GenerateRobotState();
   auto goal_state = GenerateRobotState();
-  // Joint_state.position is ignored, but set to confirm that it is ignored
+  // joint_state.position is ignored, but set for confirmation that it is ignored
   goal_state.joint_state.position << 0.2, 0.4, 0.6;
   goal_state.multi_dof_joint_state.poses[0] =
       Eigen::Translation3d(0.8, 1.0, 0.0) * Eigen::AngleAxisd(1.2, Eigen::Vector3d::UnitZ());
@@ -120,7 +122,7 @@ TEST_F(PlanerMiddleStateGeneratorTest, ComputeRandomMiddleStateZeroRange) {
   EXPECT_NEAR(middle_state.value().multi_dof_joint_state.poses[0].linear().eulerAngles(0, 1, 2)[2], 0.6, kEpsilon);
 }
 
-// The arm is random between the lower limit, the bogie is randomly added between the initial state and the goal state.
+// The arm is random between the upper and lower limits, and the cart returns a value with random width added to the midpoint between the initial state and the goal state
 TEST_F(PlanerMiddleStateGeneratorTest, ComputeRandomMiddleState) {
   node_->set_parameter(rclcpp::Parameter("middle_state_base_position_range", 0.05));
   node_->set_parameter(rclcpp::Parameter("middle_state_base_rotation_range", 0.01));
@@ -130,7 +132,7 @@ TEST_F(PlanerMiddleStateGeneratorTest, ComputeRandomMiddleState) {
   auto goal_state = GenerateRobotState();
   goal_state.multi_dof_joint_state.poses[0] = Eigen::Translation3d(0.8, 1.0, 0.0) * Eigen::AngleAxisd::Identity();
 
-  // There is no particular basis for the number of times
+  // The number of times has no particular basis
   std::vector<std::vector<double>> joint_positions(6, std::vector<double>({}));
   for (auto i = 0; i < 1000; ++i) {
     const auto middle_state = sampler_->ComputeRandomMiddleState(initial_state, goal_state, GenerateTestParameters());
@@ -158,18 +160,18 @@ TEST_F(PlanerMiddleStateGeneratorTest, ComputeRandomMiddleState) {
     joint_positions[4].push_back(middle_state.value().multi_dof_joint_state.poses[0].translation().y());
     joint_positions[5].push_back(middle_state.value().multi_dof_joint_state.poses[0].linear().eulerAngles(0, 1, 2)[2]);
   }
-  // Random tests are troublesome, so only confirm that min-max is not the same.
+  // Random tests are troublesome, so only confirm that min-max are not the same
   IsMinMaxNotEqual(joint_positions);
 }
 
-// Remove the bogie from the target
+// Exclude the cart from the target
 TEST_F(PlanerMiddleStateGeneratorTest, IgnoreBase) {
   node_->set_parameter(rclcpp::Parameter("middle_state_base_position_range", 0.05));
   node_->set_parameter(rclcpp::Parameter("middle_state_base_rotation_range", 0.01));
   rclcpp::spin_some(node_);
 
   auto params = GenerateTestParameters();
-  params->base_names.clear();
+  params->UpdateBaseMovementType(false);
 
   const auto initial_state = GenerateRobotState();
   auto goal_state = GenerateRobotState();
@@ -184,7 +186,7 @@ TEST_F(PlanerMiddleStateGeneratorTest, IgnoreBase) {
     EXPECT_EQ(middle_state.value().joint_state.name, kJointNames);
     ASSERT_EQ(middle_state.value().joint_state.position.size(), 3);
 
-    // Since it was removed from the target, the bogie is not random, but the intermediate value
+    // Since it was excluded from the target, the cart is not random, but the midpoint
     EXPECT_EQ(middle_state.value().multi_dof_joint_state.names, kBaseNames);
     ASSERT_EQ(middle_state.value().multi_dof_joint_state.poses.size(), 1);
     EXPECT_NEAR(middle_state.value().multi_dof_joint_state.poses[0].translation().x(), 0.4, kEpsilon);
@@ -198,34 +200,7 @@ TEST_F(PlanerMiddleStateGeneratorTest, IgnoreBase) {
   IsMinMaxNotEqual(joint_positions);
 }
 
-// Remove joints from the target
-TEST_F(PlanerMiddleStateGeneratorTest, IgnoreJoint) {
-  const auto params = GenerateTestParameters()->RemoveJoints({kJointNames[2]});
-
-  const auto initial_state = GenerateRobotState();
-  auto goal_state = GenerateRobotState();
-  goal_state.joint_state.position << 0.2, 0.4, 0.6;
-
-  // Only Index2 removed from the target is not random but intermediate value
-  std::vector<std::vector<double>> joint_positions(5, std::vector<double>({}));
-  for (auto i = 0; i < 10; ++i) {
-    const auto middle_state = sampler_->ComputeRandomMiddleState(initial_state, goal_state, params);
-    ASSERT_TRUE(middle_state.has_value());
-
-    EXPECT_EQ(middle_state.value().joint_state.name, kJointNames);
-    ASSERT_EQ(middle_state.value().joint_state.position.size(), 3);
-    EXPECT_NEAR(middle_state.value().joint_state.position[2], 0.3, kEpsilon);
-
-    joint_positions[0].push_back(middle_state.value().joint_state.position[0]);
-    joint_positions[1].push_back(middle_state.value().joint_state.position[1]);
-    joint_positions[2].push_back(middle_state.value().multi_dof_joint_state.poses[0].translation().x());
-    joint_positions[3].push_back(middle_state.value().multi_dof_joint_state.poses[0].translation().y());
-    joint_positions[4].push_back(middle_state.value().multi_dof_joint_state.poses[0].linear().eulerAngles(0, 1, 2)[2]);
-  }
-  IsMinMaxNotEqual(joint_positions);
-}
-
-// Initial_state's arm joint is insufficient
+// The arm joints of initial_state are insufficient
 TEST_F(PlanerMiddleStateGeneratorTest, InvalidInitialArmJoint) {
   auto initial_state = GenerateRobotState();
   initial_state.joint_state.name = {"arm", "hand"};
@@ -236,7 +211,7 @@ TEST_F(PlanerMiddleStateGeneratorTest, InvalidInitialArmJoint) {
   EXPECT_FALSE(middle_state.has_value());
 }
 
-// Initial_state's bogie joint is deficient
+// The cart joints of initial_state are insufficient
 TEST_F(PlanerMiddleStateGeneratorTest, InvalidInitialBaseJoint) {
   auto initial_state = GenerateRobotState();
   initial_state.multi_dof_joint_state.names.clear();
@@ -247,7 +222,7 @@ TEST_F(PlanerMiddleStateGeneratorTest, InvalidInitialBaseJoint) {
   EXPECT_FALSE(middle_state.has_value());
 }
 
-// There is a shortage of Goal_state's arm joints
+// The arm joints of goal_state are insufficient
 TEST_F(PlanerMiddleStateGeneratorTest, InvalidGoalArmJoint) {
   auto goal_state = GenerateRobotState();
   goal_state.joint_state.name = {"arm", "hand"};
@@ -258,7 +233,7 @@ TEST_F(PlanerMiddleStateGeneratorTest, InvalidGoalArmJoint) {
   EXPECT_FALSE(middle_state.has_value());
 }
 
-// There is a shortage of Goal_state bogie joints
+// The cart joints of goal_state are insufficient
 TEST_F(PlanerMiddleStateGeneratorTest, InvalidGoalBaseJoint) {
   auto goal_state = GenerateRobotState();
   goal_state.multi_dof_joint_state.names.clear();

@@ -1,0 +1,58 @@
+<launch>
+  <arg name="rgbd_input" default="/hsrb/head_rgbd_sensor/depth_registered/rectified_points" />
+  <arg name="urg_input" default="/urg_cloud" />
+  <arg name="self_filter_param" default="$(find tmc_collision_detecting_validator)/config/robot_self_filter.yaml" />
+
+  <node pkg="tmc_collision_detecting_validator" type="point_cloud_to_collision_object"
+        name="point_cloud_to_collision_object">
+    <remap from="/voxel_grid/output" to="statistical_outlier_removal/output"/>
+  </node>
+
+  <node pkg="robot_self_filter" type="self_filter" name="urg_self_filter" output="screen">
+      <remap from="cloud_in" to="$(arg urg_input)" />
+      <remap from="cloud_out" to="~output" />
+      <rosparam command="load" file="$(arg self_filter_param)" />
+      <param name="use_rgb" value="false" />
+      <param name="keep_organized" value="true"/>
+      <param name="subsample_value" type="double" value="0.0"/>
+  </node>
+
+  <node pkg="robot_self_filter" type="self_filter" name="rgbd_self_filter" output="screen">
+      <remap from="cloud_in" to="$(arg rgbd_input)" />
+      <remap from="cloud_out" to="~output" />
+      <rosparam command="load" file="$(arg self_filter_param)" />
+      <param name="use_rgb" value="false" />
+      <param name="keep_organized" value="true"/>
+      <param name="subsample_value" type="double" value="0.0"/>
+  </node>
+
+  <node pkg="nodelet" type="nodelet" name="pcl_manager" args="manager"/>
+  <node name="pass_through"
+        pkg="nodelet" type="nodelet"
+        args="load pcl/PassThrough pcl_manager">
+      <remap from="~input" to="/rgbd_self_filter/output" />
+      <param name="input_frame" value="base_link"/>
+      <param name="output_frame" value="base_link"/>
+      <param name="filter_field_name" value="x"/>
+  </node>
+  <node name="voxel_grid"
+        pkg="nodelet" type="nodelet"
+        args="load pcl/VoxelGrid pcl_manager">
+      <remap from="~input" to="/pass_through/output" />
+      <rosparam>
+        filter_field_name: x
+        filter_limit_min: 0.0
+        filter_limit_max: 1.0
+        filter_limit_negative: False
+        leaf_size: 0.1
+      </rosparam>
+  </node>
+  <node name="statistical_outlier_removal"
+        pkg="nodelet" type="nodelet"
+        args="load pcl/StatisticalOutlierRemoval pcl_manager">
+      <remap from="~input" to="/voxel_grid/output" />
+      <param name="mean_k" value="100"/>
+      <param name="stddev" value="5.0"/>
+      <param name="negative" value="false"/>
+  </node>
+</launch>

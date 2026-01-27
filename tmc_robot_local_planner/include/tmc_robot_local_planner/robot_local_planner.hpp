@@ -25,6 +25,9 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @file     robot_local_planner.hpp
+/// @brief    planning local path constrained
+/// @author   Koji Terada, Yuta Watanabe, Satoru Onoda
 #ifndef TMC_ROBOT_LOCAL_PLANNER_ROBOT_LOCAL_PLANNER_HPP_
 #define TMC_ROBOT_LOCAL_PLANNER_ROBOT_LOCAL_PLANNER_HPP_
 
@@ -102,7 +105,7 @@ class VisualizationPublisher {
 enum class RobotLocalPlannerErrorCode {
   kSuccess,
   kConstraintsEmpty,
-  // Consider if there is a request to divide mistakes in detail
+  // Consider if there is a request to further categorize failures in detail
   kGenerationFailure,
   kEvaluationFailure,
   kValidationFailure,
@@ -138,13 +141,13 @@ class RobotLocalPlannerComposition {
   /// @param goal_constraints The constraints to be satisifed at the terminal.
   /// @param initial_state The status at initial.
   /// @param normalized_vel Normalized velocity. [1/s].
-  /// @param ignore_joints Joint names which don't want to use.
+  /// @param enable_base Whether to use base movement.
   /// @return adopted_trajectory_out The adopted trajectory.
   std::future<tmc_manipulation_types::TimedRobotTrajectory> PlanPath(
       const tmc_robot_local_planner::Constraints& goal_constraints,
       const tmc_manipulation_types::RobotState& initial_state,
       double normalized_vel,
-      const std::vector<std::string>& ignore_joints);
+      bool enable_base);
 
   void InterruptPlanPath();
 
@@ -158,7 +161,7 @@ class RobotLocalPlannerComposition {
       const Constraints& goal_constraints,
       const tmc_manipulation_types::RobotState& initial_state,
       double normalized_vel,
-      const std::vector<std::string>& ignore_joints);
+      bool enable_base);
 
   RobotLocalPlannerPlugins plugins_;
 
@@ -231,13 +234,13 @@ class RobotLocalPlanner {
   /// @param goal_constraints The constraints to be satisifed at the terminal.
   /// @param initial_state The status at initial.
   /// @param normalized_vel Normalized velocity. [1/s].
-  /// @param ignore_joints Joint names which don't want to use.
+  /// @param enable_base Whether to use base movement.
   /// @return The future object of planning trajectory
   std::future<moveit_msgs::msg::RobotTrajectory> PlanPath(
       const tmc_planning_msgs::msg::Constraints& goal_constraints,
       const moveit_msgs::msg::RobotState& initial_state,
       double normalized_vel,
-      const std::vector<std::string>& ignore_joints);
+      bool enable_base);
 
   void InterruptPlanPath();
 
@@ -253,7 +256,7 @@ class RobotLocalPlanner {
     const tmc_planning_msgs::msg::Constraints& goal_constraints,
     const moveit_msgs::msg::RobotState& initial_state,
     double normalized_vel,
-    const std::vector<std::string>& ignore_joints);
+    bool enable_base);
 
   rclcpp_action::Client<tmc_planning_msgs::action::GenerateRobotTrajectories>::SharedPtr generator_client_;
   rclcpp_action::Client<tmc_planning_msgs::action::EvaluateRobotTrajectories>::SharedPtr evaluator_client_;

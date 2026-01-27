@@ -25,6 +25,7 @@ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 */
+/// @brief Local Path Evaluator Class
 #ifndef TMC_LOCAL_PATH_EVALUATOR_LOCAL_PATH_EVALUATOR_HPP_
 #define TMC_LOCAL_PATH_EVALUATOR_LOCAL_PATH_EVALUATOR_HPP_
 
@@ -45,7 +46,7 @@ class ThreadPool;
 
 namespace tmc_local_path_evaluator {
 
-// For sorting, to save memory instead of having Trajectory directly, to save memory
+// For sorting, instead of directly holding the trajectory, hold the index to save memory
 struct ScoreWithIndex{
   uint32_t index;
   double value;
@@ -93,7 +94,7 @@ class LocalPathEvaluator : public rclcpp::Node {
   LocalPathEvaluator();
   explicit LocalPathEvaluator(const rclcpp::NodeOptions& options);
 
-  // I want to do Shared_from_this, so initialize after instance generation
+  // Since I want to use shared_from_this, initialize after instance creation
   void Initialize();
 
   ~LocalPathEvaluator() = default;
