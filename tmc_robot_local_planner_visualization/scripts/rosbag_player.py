@@ -127,10 +127,13 @@ def broadcast_base_state(broadcaster: tf2_ros.StaticTransformBroadcaster,
     transform.header.stamp = node.get_clock().now().to_msg()
     transform.header.frame_id = 'odom'
     transform.child_frame_id = 'base_link'
-    transform.transform.translation.x = controller_state.actual.positions[0]
-    transform.transform.translation.y = controller_state.actual.positions[1]
-    transform.transform.rotation.z = math.sin(controller_state.actual.positions[2] / 2.0)
-    transform.transform.rotation.w = math.cos(controller_state.actual.positions[2] / 2.0)
+    # Since Jazzy, actual is renamed to feedback. Accept both for old rosbags.
+    positions = (controller_state.feedback if hasattr(controller_state, 'feedback')
+                 else controller_state.actual).positions
+    transform.transform.translation.x = positions[0]
+    transform.transform.translation.y = positions[1]
+    transform.transform.rotation.z = math.sin(positions[2] / 2.0)
+    transform.transform.rotation.w = math.cos(positions[2] / 2.0)
     broadcaster.sendTransform(transform)
 
 
