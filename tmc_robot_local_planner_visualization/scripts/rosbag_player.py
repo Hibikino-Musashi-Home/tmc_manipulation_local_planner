@@ -61,6 +61,7 @@ from sensor_msgs.msg import JointState
 import tf2_ros
 from tmc_planning_msgs.msg import (
     Constraints,
+    TaskSpaceRegion,
     TsrLinkConstraint,
 )
 from trajectory_msgs.msg import (
@@ -171,11 +172,16 @@ def publish_marker_array(pub: rclpy.publisher.Publisher, marker_array_rosbag: Ma
 def convert_to_tsr_link_constraint_msg(constraint_rosbag: TsrLinkConstraintRosBag) -> TsrLinkConstraint:
     tsr_constraint = TsrLinkConstraint()
     tsr_constraint.header.frame_id = constraint_rosbag.header.frame_id
-    tsr_constraint.tsr.end_frame_id = constraint_rosbag.tsr.end_frame_id
-    tsr_constraint.tsr.origin_to_tsr = convert_to_pose_msg(constraint_rosbag.tsr.origin_to_tsr)
-    tsr_constraint.tsr.tsr_to_end = convert_to_pose_msg(constraint_rosbag.tsr.tsr_to_end)
-    tsr_constraint.tsr.min_bounds = constraint_rosbag.tsr.min_bounds.tolist()
-    tsr_constraint.tsr.max_bounds = constraint_rosbag.tsr.max_bounds.tolist()
+    # Since tmc_planning_msgs 3.0.0, tsr is replaced with tsrs. Accept both for old rosbags.
+    tsrs_rosbag = constraint_rosbag.tsrs if hasattr(constraint_rosbag, 'tsrs') else [constraint_rosbag.tsr]
+    for tsr_rosbag in tsrs_rosbag:
+        tsr = TaskSpaceRegion()
+        tsr.end_frame_id = tsr_rosbag.end_frame_id
+        tsr.origin_to_tsr = convert_to_pose_msg(tsr_rosbag.origin_to_tsr)
+        tsr.tsr_to_end = convert_to_pose_msg(tsr_rosbag.tsr_to_end)
+        tsr.min_bounds = tsr_rosbag.min_bounds.tolist()
+        tsr.max_bounds = tsr_rosbag.max_bounds.tolist()
+        tsr_constraint.tsrs.append(tsr)
     return tsr_constraint
 
 
@@ -292,6 +298,7 @@ def main():
     if args.rate < 0.0:
         raise
 
+    ros_share_dir = Path('/opt/ros') / os.environ.get('ROS_DISTRO', 'jazzy') / 'share'
     add_types = {}
     for name in ['RobotLocalGoal', 'Constraints', 'TsrLinkConstraint', 'TaskSpaceRegion', 'RangeJointConstraint']:
         add_types.update(get_types_from_msg(
@@ -299,13 +306,13 @@ def main():
             'tmc_planning_msgs/msg/' + name))
     for name in ['RobotState', 'AttachedCollisionObject', 'CollisionObject', 'DisplayTrajectory', 'RobotTrajectory']:
         add_types.update(get_types_from_msg(
-            Path('/opt/ros/humble/share/moveit_msgs/msg/' + name + '.msg').read_text(),
+            (ros_share_dir / 'moveit_msgs/msg' / (name + '.msg')).read_text(),
             'moveit_msgs/msg/' + name))
     add_types.update(get_types_from_msg(
-        Path('/opt/ros/humble/share/control_msgs/msg/JointTrajectoryControllerState.msg').read_text(),
+        (ros_share_dir / 'control_msgs/msg/JointTrajectoryControllerState.msg').read_text(),
         'control_msgs/msg/JointTrajectoryControllerState'))
     add_types.update(get_types_from_msg(
-        Path('/opt/ros/humble/share/object_recognition_msgs/msg/ObjectType.msg').read_text(),
+        (ros_share_dir / 'object_recognition_msgs/msg/ObjectType.msg').read_text(),
         'object_recognition_msgs/msg/ObjectType'))
 
     typestore = get_typestore(Stores.ROS2_HUMBLE)

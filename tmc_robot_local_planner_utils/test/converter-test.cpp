@@ -62,7 +62,7 @@ void ConverterTest::SetUp() {
   tsr_.max_bounds = std::array<double, 6>({0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
   tsr_.tsr_to_end.orientation.w = 1.0;
   tsr_.end_frame_id = "hand";
-  link_const_.tsr = tsr_;
+  link_const_.tsrs = {tsr_};
   link_const_.header.frame_id = "map";
 
   base_to_target_pos_.translation.x = 2.0;
@@ -149,7 +149,7 @@ TEST_F(ConverterTest, TransformConstraint) {
   msg.soft_joint_constraints.push_back(rjc_);
   msg.hard_link_constraints.push_back(link_const_);
   msg.hard_joint_constraints.push_back(rjc_);
-  msg.initial_motion_linear_constraint = linear_const_with_pose_;
+  msg.initial_motion_linear_constraints = {linear_const_with_pose_};
   msg.hard_path_link_constraints.push_back(link_const_);
   msg.soft_path_joint_constraints.push_back(rjc_);
   std::string origin_frame = "odom";
@@ -169,18 +169,18 @@ TEST_F(ConverterTest, TransformConstraint) {
 
   // Normal test
   ASSERT_TRUE(TransformConstraints(origin_frame, tf_timeout, tf_buffer, msg));
-  EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsr.origin_to_tsr.position.x, 1.0);
-  EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsr.origin_to_tsr.position.y, -1.0);
-  EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsr.origin_to_tsr.orientation.z, std::sin(1.5707945 / 2));
-  EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsr.origin_to_tsr.orientation.w, std::cos(1.5707945 / 2));
+  EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsrs[0].origin_to_tsr.position.x, 1.0);
+  EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsrs[0].origin_to_tsr.position.y, -1.0);
+  EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsrs[0].origin_to_tsr.orientation.z, std::sin(1.5707945 / 2));
+  EXPECT_DOUBLE_EQ(msg.soft_link_constraints[0].tsrs[0].origin_to_tsr.orientation.w, std::cos(1.5707945 / 2));
   EXPECT_DOUBLE_EQ(msg.soft_joint_constraints[0].min.multi_dof_joint_state.transforms[0].translation.x, 1.0);
   EXPECT_DOUBLE_EQ(msg.soft_joint_constraints[0].min.multi_dof_joint_state.transforms[0].translation.y, -1.0);
   // Check only representative values for other constraints
-  EXPECT_DOUBLE_EQ(msg.hard_link_constraints[0].tsr.origin_to_tsr.position.x, 1.0);
+  EXPECT_DOUBLE_EQ(msg.hard_link_constraints[0].tsrs[0].origin_to_tsr.position.x, 1.0);
   EXPECT_DOUBLE_EQ(msg.hard_joint_constraints[0].min.multi_dof_joint_state.transforms[0].translation.x, 1.0);
-  EXPECT_DOUBLE_EQ(msg.hard_path_link_constraints[0].tsr.origin_to_tsr.position.x, 1.0);
+  EXPECT_DOUBLE_EQ(msg.hard_path_link_constraints[0].tsrs[0].origin_to_tsr.position.x, 1.0);
   EXPECT_DOUBLE_EQ(msg.soft_path_joint_constraints[0].min.multi_dof_joint_state.transforms[0].translation.x, 1.0);
-  EXPECT_DOUBLE_EQ(msg.initial_motion_linear_constraint.reference.pose.position.x, -0.5);
+  EXPECT_DOUBLE_EQ(msg.initial_motion_linear_constraints[0].reference.pose.position.x, -0.5);
 
   // When coordinate transformation is not possible
   link_const_.header.frame_id = "test";
@@ -195,8 +195,8 @@ TEST_F(ConverterTest, ConvertConstraints) {
   msg.soft_joint_constraints.push_back(rjc_);
   msg.hard_link_constraints.push_back(link_const_);
   msg.hard_joint_constraints.push_back(rjc_);
-  msg.goal_relative_linear_constraint = linear_const_;
-  msg.initial_motion_linear_constraint = linear_const_with_pose_;
+  msg.goal_relative_linear_constraints = {linear_const_};
+  msg.initial_motion_linear_constraints = {linear_const_with_pose_};
   msg.hard_path_link_constraints.push_back(link_const_);
   msg.soft_path_joint_constraints.push_back(rjc_);
   tmc_robot_local_planner::Constraints constraints;
@@ -240,10 +240,10 @@ TEST_F(ConverterTest, TransformTSRConstraint) {
 
   // Normal test
   ASSERT_TRUE(TransformTSRConstraint(origin_frame, tf_timeout, tf_buffer, link_const_));
-  EXPECT_DOUBLE_EQ(link_const_.tsr.origin_to_tsr.position.x, 1.0);
-  EXPECT_DOUBLE_EQ(link_const_.tsr.origin_to_tsr.position.y, -1.0);
-  EXPECT_DOUBLE_EQ(link_const_.tsr.origin_to_tsr.orientation.z, std::sin(1.5707945 / 2));
-  EXPECT_DOUBLE_EQ(link_const_.tsr.origin_to_tsr.orientation.w, std::cos(1.5707945 / 2));
+  EXPECT_DOUBLE_EQ(link_const_.tsrs[0].origin_to_tsr.position.x, 1.0);
+  EXPECT_DOUBLE_EQ(link_const_.tsrs[0].origin_to_tsr.position.y, -1.0);
+  EXPECT_DOUBLE_EQ(link_const_.tsrs[0].origin_to_tsr.orientation.z, std::sin(1.5707945 / 2));
+  EXPECT_DOUBLE_EQ(link_const_.tsrs[0].origin_to_tsr.orientation.w, std::cos(1.5707945 / 2));
   // When coordinate transformation is not possible
   const char* const test_frame = "test";
   ASSERT_FALSE(TransformTSRConstraint(test_frame, tf_timeout, tf_buffer, link_const_));
@@ -262,11 +262,11 @@ TEST_F(ConverterTest, ConvertLinkConstraintMsgToLinkConstraint) {
 }
 
 TEST_F(ConverterTest, ConvertLinkConstraintMsgToRotationFirstLinkConstraint) {
-  link_const_.tsr.min_bounds[0] = 1.0;
-  link_const_.tsr.max_bounds[0] = 1.0;
-  link_const_.tsr.min_bounds[5] = -M_PI / 2.0;
-  link_const_.tsr.max_bounds[5] = -M_PI / 2.0;
-  link_const_.tsr.rotation_first = true;
+  link_const_.tsrs[0].min_bounds[0] = 1.0;
+  link_const_.tsrs[0].max_bounds[0] = 1.0;
+  link_const_.tsrs[0].min_bounds[5] = -M_PI / 2.0;
+  link_const_.tsrs[0].max_bounds[5] = -M_PI / 2.0;
+  link_const_.tsrs[0].rotation_first = true;
 
   tmc_robot_local_planner::ILinkConstraint::Ptr link_const;
   ConvertLinkConstraintMsgToLinkConstraint(link_const_, link_const);

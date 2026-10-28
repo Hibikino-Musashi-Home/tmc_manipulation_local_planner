@@ -253,17 +253,23 @@ TEST_F(LinkConstraintsVisualizationTest, RotationFirst) {
   // Here, we'll do it with hard/soft_link_constraints.
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_link_constraints.resize(1);
+  for (auto& constraint : msg.hard_link_constraints) {
+    constraint.tsrs.resize(1);
+  }
   msg.hard_link_constraints[0].header.frame_id = "frame_1";
-  msg.hard_link_constraints[0].tsr.origin_to_tsr.position.x = 0.1;
-  msg.hard_link_constraints[0].tsr.tsr_to_end.position.x = 0.2;
-  msg.hard_link_constraints[0].tsr.min_bounds[0] = 0.3;
-  msg.hard_link_constraints[0].tsr.max_bounds[0] = 0.3;
-  msg.hard_link_constraints[0].tsr.min_bounds[5] = 0.5;
-  msg.hard_link_constraints[0].tsr.max_bounds[5] = 0.5;
+  msg.hard_link_constraints[0].tsrs[0].origin_to_tsr.position.x = 0.1;
+  msg.hard_link_constraints[0].tsrs[0].tsr_to_end.position.x = 0.2;
+  msg.hard_link_constraints[0].tsrs[0].min_bounds[0] = 0.3;
+  msg.hard_link_constraints[0].tsrs[0].max_bounds[0] = 0.3;
+  msg.hard_link_constraints[0].tsrs[0].min_bounds[5] = 0.5;
+  msg.hard_link_constraints[0].tsrs[0].max_bounds[5] = 0.5;
   msg.soft_link_constraints.resize(1);
+  for (auto& constraint : msg.soft_link_constraints) {
+    constraint.tsrs.resize(1);
+  }
   msg.soft_link_constraints[0] = msg.hard_link_constraints[0];
   msg.soft_link_constraints[0].header.frame_id = "frame_2";
-  msg.soft_link_constraints[0].tsr.rotation_first = true;
+  msg.soft_link_constraints[0].tsrs[0].rotation_first = true;
 
   pub_->publish(msg);
   ASSERT_TRUE(WaitForMarker());
@@ -298,15 +304,18 @@ TEST_F(LinkConstraintsVisualizationTest, PositionRange) {
   // Here, we'll do it with hard_path_link_constraints.
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_path_link_constraints.resize(2);
+  for (auto& constraint : msg.hard_path_link_constraints) {
+    constraint.tsrs.resize(1);
+  }
   // The case with one position point was done with RotationFirst, so it's omitted.
   // Case where position min/max bounds are narrow.
   msg.hard_path_link_constraints[0].header.frame_id = "frame_3";
-  msg.hard_path_link_constraints[0].tsr.min_bounds[0] = 0.0;
-  msg.hard_path_link_constraints[0].tsr.max_bounds[0] = 0.1;
+  msg.hard_path_link_constraints[0].tsrs[0].min_bounds[0] = 0.0;
+  msg.hard_path_link_constraints[0].tsrs[0].max_bounds[0] = 0.1;
   // Case where position min/max bounds are wide.
   msg.hard_path_link_constraints[1].header.frame_id = "frame_4";
-  msg.hard_path_link_constraints[1].tsr.min_bounds[1] = -1.0;
-  msg.hard_path_link_constraints[1].tsr.max_bounds[1] = 1.0;
+  msg.hard_path_link_constraints[1].tsrs[0].min_bounds[1] = -1.0;
+  msg.hard_path_link_constraints[1].tsrs[0].max_bounds[1] = 1.0;
 
   pub_->publish(msg);
   ASSERT_TRUE(WaitForMarker());
@@ -348,15 +357,18 @@ TEST_F(LinkConstraintsVisualizationTest, PositionRange) {
 TEST_F(LinkConstraintsVisualizationTest, RotationRange) {
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_path_link_constraints.resize(2);
+  for (auto& constraint : msg.hard_path_link_constraints) {
+    constraint.tsrs.resize(1);
+  }
   // The case with one rotation point was done with RotationFirst, so it's omitted.
   // Case where rotation min/max bounds are narrow.
   msg.hard_path_link_constraints[0].header.frame_id = "frame_5";
-  msg.hard_path_link_constraints[0].tsr.min_bounds[3] = 0.0;
-  msg.hard_path_link_constraints[0].tsr.max_bounds[3] = 0.1;
+  msg.hard_path_link_constraints[0].tsrs[0].min_bounds[3] = 0.0;
+  msg.hard_path_link_constraints[0].tsrs[0].max_bounds[3] = 0.1;
   // Case where rotation min/max bounds are wide.
   msg.hard_path_link_constraints[1].header.frame_id = "frame_6";
-  msg.hard_path_link_constraints[1].tsr.min_bounds[4] = -1.0;
-  msg.hard_path_link_constraints[1].tsr.max_bounds[4] = 1.0;
+  msg.hard_path_link_constraints[1].tsrs[0].min_bounds[4] = -1.0;
+  msg.hard_path_link_constraints[1].tsrs[0].max_bounds[4] = 1.0;
 
   pub_->publish(msg);
   ASSERT_TRUE(WaitForMarker());
@@ -402,13 +414,16 @@ TEST_F(LinkConstraintsVisualizationTest, RotationRange) {
 TEST_F(LinkConstraintsVisualizationTest, MultiRange) {
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_path_link_constraints.resize(1);
+  for (auto& constraint : msg.hard_path_link_constraints) {
+    constraint.tsrs.resize(1);
+  }
   msg.hard_path_link_constraints[0].header.frame_id = "frame_7";
-  msg.hard_path_link_constraints[0].tsr.min_bounds[0] = 0.0;
-  msg.hard_path_link_constraints[0].tsr.max_bounds[0] = 0.1;
-  msg.hard_path_link_constraints[0].tsr.min_bounds[1] = -1.0;
-  msg.hard_path_link_constraints[0].tsr.max_bounds[1] = 1.0;
-  msg.hard_path_link_constraints[0].tsr.min_bounds[3] = 0.2;
-  msg.hard_path_link_constraints[0].tsr.max_bounds[3] = 0.3;
+  msg.hard_path_link_constraints[0].tsrs[0].min_bounds[0] = 0.0;
+  msg.hard_path_link_constraints[0].tsrs[0].max_bounds[0] = 0.1;
+  msg.hard_path_link_constraints[0].tsrs[0].min_bounds[1] = -1.0;
+  msg.hard_path_link_constraints[0].tsrs[0].max_bounds[1] = 1.0;
+  msg.hard_path_link_constraints[0].tsrs[0].min_bounds[3] = 0.2;
+  msg.hard_path_link_constraints[0].tsrs[0].max_bounds[3] = 0.3;
 
   pub_->publish(msg);
   ASSERT_TRUE(WaitForMarker());
@@ -439,15 +454,16 @@ TEST_F(LinkConstraintsVisualizationTest, MultiRange) {
 
 TEST_F(LinkConstraintsVisualizationTest, InitialMotionLinearConstraint) {
   tmc_planning_msgs::msg::Constraints msg;
-  msg.initial_motion_linear_constraint.end_frame_id = "frame_8";
-  msg.initial_motion_linear_constraint.reference.header.frame_id = "frame_9";
-  msg.initial_motion_linear_constraint.reference.pose.position.x = 0.1;
-  msg.initial_motion_linear_constraint.reference.pose.position.y = 0.2;
-  msg.initial_motion_linear_constraint.reference.pose.position.z = 0.3;
-  msg.initial_motion_linear_constraint.reference.pose.orientation.y = 1.0;
-  msg.initial_motion_linear_constraint.reference.pose.orientation.w = 0.0;
-  msg.initial_motion_linear_constraint.axis.z = 0.4;
-  msg.initial_motion_linear_constraint.distance = 0.5;
+  msg.initial_motion_linear_constraints.resize(1);
+  msg.initial_motion_linear_constraints[0].end_frame_id = "frame_8";
+  msg.initial_motion_linear_constraints[0].reference.header.frame_id = "frame_9";
+  msg.initial_motion_linear_constraints[0].reference.pose.position.x = 0.1;
+  msg.initial_motion_linear_constraints[0].reference.pose.position.y = 0.2;
+  msg.initial_motion_linear_constraints[0].reference.pose.position.z = 0.3;
+  msg.initial_motion_linear_constraints[0].reference.pose.orientation.y = 1.0;
+  msg.initial_motion_linear_constraints[0].reference.pose.orientation.w = 0.0;
+  msg.initial_motion_linear_constraints[0].axis.z = 0.4;
+  msg.initial_motion_linear_constraints[0].distance = 0.5;
 
   pub_->publish(msg);
   ASSERT_TRUE(WaitForMarker());
@@ -470,12 +486,16 @@ TEST_F(LinkConstraintsVisualizationTest, InitialMotionLinearConstraint) {
 TEST_F(LinkConstraintsVisualizationTest, GoalRelativeLinearConstraint) {
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_link_constraints.resize(1);
+  for (auto& constraint : msg.hard_link_constraints) {
+    constraint.tsrs.resize(1);
+  }
   msg.hard_link_constraints[0].header.frame_id = "frame_3";
-  msg.hard_link_constraints[0].tsr.min_bounds[0] = 0.0;
-  msg.hard_link_constraints[0].tsr.max_bounds[0] = 0.1;
-  msg.goal_relative_linear_constraint.end_frame_id = "frame_4";
-  msg.goal_relative_linear_constraint.axis.z = -0.2;
-  msg.goal_relative_linear_constraint.distance = 0.3;
+  msg.hard_link_constraints[0].tsrs[0].min_bounds[0] = 0.0;
+  msg.hard_link_constraints[0].tsrs[0].max_bounds[0] = 0.1;
+  msg.goal_relative_linear_constraints.resize(1);
+  msg.goal_relative_linear_constraints[0].end_frame_id = "frame_4";
+  msg.goal_relative_linear_constraints[0].axis.z = -0.2;
+  msg.goal_relative_linear_constraints[0].distance = 0.3;
 
   pub_->publish(msg);
   ASSERT_TRUE(WaitForMarker());
@@ -513,6 +533,9 @@ TEST_F(LinkConstraintsVisualizationTest, EmptyConstraints) {
 TEST_F(LinkConstraintsVisualizationTest, EmptyFrameId) {
   tmc_planning_msgs::msg::Constraints msg;
   msg.hard_path_link_constraints.resize(2);
+  for (auto& constraint : msg.hard_path_link_constraints) {
+    constraint.tsrs.resize(1);
+  }
   msg.hard_path_link_constraints[0].header.frame_id = "";
   msg.hard_path_link_constraints[1].header.frame_id = "frame_8";
 
@@ -529,6 +552,7 @@ TEST_F(LinkConstraintsVisualizationTest, RobotLocalGoal) {
 
   tmc_planning_msgs::msg::RobotLocalGoal msg;
   msg.constraints.hard_path_link_constraints.resize(1);
+  msg.constraints.hard_path_link_constraints[0].tsrs.resize(1);
   msg.constraints.hard_path_link_constraints[0].header.frame_id = "frame_9";
 
   pub->publish(msg);

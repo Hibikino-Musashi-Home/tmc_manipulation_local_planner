@@ -73,40 +73,47 @@ TsrMarkersAndPoses GenerateTsrMarkers(
   // When converted to the type of tmc_robot_local_planner, min/max_bounds, etc. are hidden as private, so process it as a msg
   std::vector<visualization_msgs::msg::Marker> markers;
   std::vector<PoseStamped> poses;
+  // Since tmc_planning_msgs 3.0.0, a constraint has multiple TSRs. Visualize all of them.
+  std::vector<std::pair<std_msgs::msg::Header, tmc_planning_msgs::msg::TaskSpaceRegion>> header_and_tsrs;
   for (const auto& constraint : constraints) {
-    if (constraint.header.frame_id.empty()) {
+    for (const auto& tsr : constraint.tsrs) {
+      header_and_tsrs.emplace_back(constraint.header, tsr);
+    }
+  }
+  for (const auto& [header, tsr] : header_and_tsrs) {
+    if (header.frame_id.empty()) {
       continue;
     }
     Eigen::Affine3d origin_to_tsr;
-    tf2::fromMsg(constraint.tsr.origin_to_tsr, origin_to_tsr);
+    tf2::fromMsg(tsr.origin_to_tsr, origin_to_tsr);
 
     Eigen::Affine3d tsr_to_end;
-    tf2::fromMsg(constraint.tsr.tsr_to_end, tsr_to_end);
+    tf2::fromMsg(tsr.tsr_to_end, tsr_to_end);
 
     std::vector<std::vector<double>> candidates_xyz;
     for (auto i = 0; i < 3; ++i) {
-      const auto distance = std::abs(constraint.tsr.max_bounds[i] - constraint.tsr.min_bounds[i]);
+      const auto distance = std::abs(tsr.max_bounds[i] - tsr.min_bounds[i]);
       if (distance < std::numeric_limits<double>::min()) {
-        candidates_xyz.emplace_back(std::vector<double>({constraint.tsr.min_bounds[i]}));
+        candidates_xyz.emplace_back(std::vector<double>({tsr.min_bounds[i]}));
       } else if (distance < kPositionBoundDistanceThreshold) {
-        candidates_xyz.emplace_back(std::vector<double>({constraint.tsr.min_bounds[i], constraint.tsr.max_bounds[i]}));
+        candidates_xyz.emplace_back(std::vector<double>({tsr.min_bounds[i], tsr.max_bounds[i]}));
       } else {
-        const auto min_value = std::max(-kPositionBoundMaxValueAbs, constraint.tsr.min_bounds[i]);
-        const auto max_value = std::min(kPositionBoundMaxValueAbs, constraint.tsr.max_bounds[i]);
+        const auto min_value = std::max(-kPositionBoundMaxValueAbs, tsr.min_bounds[i]);
+        const auto max_value = std::min(kPositionBoundMaxValueAbs, tsr.max_bounds[i]);
         candidates_xyz.emplace_back(std::vector<double>({min_value, (min_value + max_value) / 2.0, max_value}));
       }
     }
 
     std::vector<std::vector<double>> candidates_rpy;
     for (auto i = 3; i < 6; ++i) {
-      const auto distance = std::abs(constraint.tsr.max_bounds[i] - constraint.tsr.min_bounds[i]);
+      const auto distance = std::abs(tsr.max_bounds[i] - tsr.min_bounds[i]);
       if (distance < std::numeric_limits<double>::min()) {
-        candidates_rpy.emplace_back(std::vector<double>({constraint.tsr.min_bounds[i]}));
+        candidates_rpy.emplace_back(std::vector<double>({tsr.min_bounds[i]}));
       } else if (distance < kRotationBoundDistanceThreshold) {
-        candidates_rpy.emplace_back(std::vector<double>({constraint.tsr.min_bounds[i], constraint.tsr.max_bounds[i]}));
+        candidates_rpy.emplace_back(std::vector<double>({tsr.min_bounds[i], tsr.max_bounds[i]}));
       } else {
-        const auto min_value = std::max(-M_PI, constraint.tsr.min_bounds[i]);
-        const auto max_value = std::min(M_PI, constraint.tsr.max_bounds[i]);
+        const auto min_value = std::max(-M_PI, tsr.min_bounds[i]);
+        const auto max_value = std::min(M_PI, tsr.max_bounds[i]);
         // It's fine as long as it's somewhat divided, so I haven't properly considered rounding
         const auto step = (max_value - min_value) / (std::round(distance / kRotationBoundDistanceThreshold) + 1.0);
         std::vector<double> candidates;
@@ -127,15 +134,15 @@ TsrMarkersAndPoses GenerateTsrMarkers(
             for (auto pitch : candidates_rpy[1]) {
               for (auto yaw : candidates_rpy[2]) {
                 Eigen::Affine3d origin_to_end;
-                if (constraint.tsr.rotation_first) {
+                if (tsr.rotation_first) {
                   origin_to_end =
                       origin_to_tsr * RotationFirstRegionValuesToPose(x, y, z, roll, pitch, yaw) * tsr_to_end;
                 } else {
                   origin_to_end = origin_to_tsr * RegionValuesToPose(x, y, z, roll, pitch, yaw) * tsr_to_end;
                 }
                 markers.emplace_back(GeneratePoseMarkers(
-                    origin_to_end, stamp, constraint.header.frame_id, start_id + markers.size(), params));
-                poses.emplace_back(PoseStamped{constraint.header.frame_id, stamp, origin_to_end});
+                    origin_to_end, stamp, header.frame_id, start_id + markers.size(), params));
+                poses.emplace_back(PoseStamped{header.frame_id, stamp, origin_to_end});
               }
             }
           }
@@ -325,17 +332,19 @@ void LinkConstraintsVisualization::Visualize(const tmc_planning_msgs::msg::Const
   for (const auto& pose_stamped : hard_goal_poses) {
     markers.markers.push_back(GenerateOriginMarker(pose_stamped, markers.markers.size(), hard_goal_params));
   }
-  if (!constraints_msg.goal_relative_linear_constraint.end_frame_id.empty() &&
-      ValidateAxis(constraints_msg.goal_relative_linear_constraint.axis)) {
-    for (const auto& pose_stamped : hard_goal_poses) {
-      markers.markers.push_back(GenerateGoalRelativeMarker(
-          pose_stamped, constraints_msg.goal_relative_linear_constraint, markers.markers.size(), hard_goal_params));
+  for (const auto& linear_constraint : constraints_msg.goal_relative_linear_constraints) {
+    if (!linear_constraint.end_frame_id.empty() && ValidateAxis(linear_constraint.axis)) {
+      for (const auto& pose_stamped : hard_goal_poses) {
+        markers.markers.push_back(GenerateGoalRelativeMarker(
+            pose_stamped, linear_constraint, markers.markers.size(), hard_goal_params));
+      }
     }
   }
-  if (!constraints_msg.initial_motion_linear_constraint.end_frame_id.empty() &&
-      ValidateAxis(constraints_msg.initial_motion_linear_constraint.axis)) {
-    markers.markers.push_back(GenerateInitialMotionMarker(
-        constraints_msg.initial_motion_linear_constraint, stamp, markers.markers.size(), hard_goal_params));
+  for (const auto& linear_constraint : constraints_msg.initial_motion_linear_constraints) {
+    if (!linear_constraint.end_frame_id.empty() && ValidateAxis(linear_constraint.axis)) {
+      markers.markers.push_back(GenerateInitialMotionMarker(
+          linear_constraint, stamp, markers.markers.size(), hard_goal_params));
+    }
   }
 
   MarkerParameters soft_goal_params;

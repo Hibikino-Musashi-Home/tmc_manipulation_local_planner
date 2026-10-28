@@ -4,6 +4,7 @@ project(tmc_robot_local_planner_utils)
 find_package(ament_cmake REQUIRED)
 find_package(Boost REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(rclcpp REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -19,7 +20,7 @@ add_library(${PROJECT_NAME} SHARED
   src/${PROJECT_NAME}/extractor.cpp
 )
 target_include_directories(${PROJECT_NAME} PUBLIC include ${EIGEN3_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
-ament_target_dependencies(${PROJECT_NAME} tf2_eigen tf2_geometry_msgs tf2_ros tmc_manipulation_types tmc_manipulation_types_bridge tmc_planning_msgs tmc_robot_local_planner)
+ament_target_dependencies(${PROJECT_NAME} rclcpp tf2_eigen tf2_geometry_msgs tf2_ros tmc_manipulation_types tmc_manipulation_types_bridge tmc_planning_msgs tmc_robot_local_planner)
 
 install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION lib

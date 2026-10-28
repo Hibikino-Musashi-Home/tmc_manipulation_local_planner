@@ -34,12 +34,28 @@ DAMAGE.
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
+#include <rclcpp/logging.hpp>
 #include <tmc_manipulation_types_bridge/manipulation_msg_convertor.hpp>
 
 using Eigen::Affine3d;
 using Eigen::Vector3d;
 
 namespace {
+
+const rclcpp::Logger kLogger = rclcpp::get_logger("tmc_robot_local_planner_utils");
+
+// Since tmc_planning_msgs 3.0.0, linear constraints and TSRs are arrays,
+// but the planner holds only one of each. Use the first element.
+template <typename T>
+const T* GetFirstElement(const std::vector<T>& elements, const char* name) {
+  if (elements.empty()) {
+    return nullptr;
+  }
+  if (elements.size() > 1) {
+    RCLCPP_WARN(kLogger, "Only the first element of %s is used (%zu given).", name, elements.size());
+  }
+  return &elements.front();
+}
 
 template <typename T>
 bool TryTransform(const T& in,
@@ -95,7 +111,9 @@ void BatchConvertConstMsgConstToWithLoop(const Fn& fn,
   for (auto& constraint : constraints) {
     U converted_constraint;
     fn(constraint, converted_constraint);
-    out.push_back(converted_constraint);
+    if (converted_constraint) {
+      out.push_back(converted_constraint);
+    }
   }
 }
 
@@ -157,10 +175,11 @@ bool TransformConstraints(
                               timeout, buffer, msg.soft_path_joint_constraints)) {
     return false;
   }
-  if (!msg.initial_motion_linear_constraint.reference.header.frame_id.empty() &&
-      !TryTransform(msg.initial_motion_linear_constraint.reference, origin_frame,
-                    timeout, buffer, msg.initial_motion_linear_constraint.reference)) {
-    return false;
+  for (auto& constraint : msg.initial_motion_linear_constraints) {
+    if (!constraint.reference.header.frame_id.empty() &&
+        !TryTransform(constraint.reference, origin_frame, timeout, buffer, constraint.reference)) {
+      return false;
+    }
   }
   return true;
 }
@@ -182,10 +201,18 @@ void ConvertConstraints(const tmc_planning_msgs::msg::Constraints& msg,
   BatchConvertConstMsgConstToWithLoop(ConvertLinkConstraintMsgToLinkConstraint,
                                       msg.hard_path_link_constraints,
                                       constraints.hard_path_link_constraints);
-  ConvertLinearConstraintMsgToLinearConstraint(msg.goal_relative_linear_constraint,
-                                               constraints.goal_relative_linear_constraint);
-  ConvertLinearConstraintMsgToLinearConstraint(msg.initial_motion_linear_constraint,
-                                               constraints.initial_motion_linear_constraint);
+  const auto goal_relative_linear_constraint = GetFirstElement(
+      msg.goal_relative_linear_constraints, "goal_relative_linear_constraints");
+  if (goal_relative_linear_constraint) {
+    ConvertLinearConstraintMsgToLinearConstraint(*goal_relative_linear_constraint,
+                                                 constraints.goal_relative_linear_constraint);
+  }
+  const auto initial_motion_linear_constraint = GetFirstElement(
+      msg.initial_motion_linear_constraints, "initial_motion_linear_constraints");
+  if (initial_motion_linear_constraint) {
+    ConvertLinearConstraintMsgToLinearConstraint(*initial_motion_linear_constraint,
+                                                 constraints.initial_motion_linear_constraint);
+  }
   BatchConvertConstMsgConstToWithLoop(ConvertJointConstraintMsgToJointConstraint,
                                       msg.soft_path_joint_constraints,
                                       constraints.soft_path_joint_constraints);
@@ -196,15 +223,17 @@ bool TransformTSRConstraint(
     const double timeout,
     const tf2_ros::Buffer& buffer,
     tmc_planning_msgs::msg::TsrLinkConstraint& constraint) {
-  geometry_msgs::msg::PoseStamped origin_to_tsr;
-  origin_to_tsr.header = constraint.header;
-  origin_to_tsr.pose = constraint.tsr.origin_to_tsr;
-  geometry_msgs::msg::PoseStamped transformed;
-  constraint.tsr.origin_to_tsr = transformed.pose;
-  if (TryTransform(origin_to_tsr, origin_frame, timeout, buffer, transformed)) {
-    constraint.tsr.origin_to_tsr = transformed.pose;
-  } else {
-    return false;
+  for (auto& tsr : constraint.tsrs) {
+    geometry_msgs::msg::PoseStamped origin_to_tsr;
+    origin_to_tsr.header = constraint.header;
+    origin_to_tsr.pose = tsr.origin_to_tsr;
+    geometry_msgs::msg::PoseStamped transformed;
+    tsr.origin_to_tsr = transformed.pose;
+    if (TryTransform(origin_to_tsr, origin_frame, timeout, buffer, transformed)) {
+      tsr.origin_to_tsr = transformed.pose;
+    } else {
+      return false;
+    }
   }
   return true;
 }
@@ -212,9 +241,15 @@ bool TransformTSRConstraint(
 void ConvertLinkConstraintMsgToLinkConstraint(
     const tmc_planning_msgs::msg::TsrLinkConstraint& msg,
     tmc_robot_local_planner::ILinkConstraint::Ptr& constraint_out) {
+  const auto tsr_msg = GetFirstElement(msg.tsrs, "tsrs");
+  if (!tsr_msg) {
+    RCLCPP_WARN(kLogger, "TsrLinkConstraint without tsrs is ignored.");
+    constraint_out = nullptr;
+    return;
+  }
   tmc_manipulation_types::TaskSpaceRegion tsr;
-  tmc_manipulation_types_bridge::TaskSpaceRegionMsgToTaskSpaceRegion(msg.tsr, tsr);
-  if (msg.tsr.rotation_first) {
+  tmc_manipulation_types_bridge::TaskSpaceRegionMsgToTaskSpaceRegion(*tsr_msg, tsr);
+  if (tsr_msg->rotation_first) {
     constraint_out = std::make_shared<tmc_robot_local_planner::RotationFirstTsrLinkConstraint>(
         tsr, 0, std::chrono::system_clock::now().time_since_epoch().count());
   } else {
@@ -252,6 +287,9 @@ void ConvertJointConstraintMsgToJointConstraint(
 void ConvertLinearConstraintMsgToLinearConstraint(
     const tmc_planning_msgs::msg::LinearConstraint& msg,
     tmc_robot_local_planner::LinearConstraint& constraint_out) {
+  if (msg.local_origin_of_axis) {
+    RCLCPP_WARN(kLogger, "local_origin_of_axis is not supported. The axis is treated as global.");
+  }
   constraint_out.end_frame_id = msg.end_frame_id;
   // Zero determination can be done here, but the conversion function is dedicated to conversion, determination is done by the user
   tf2::fromMsg(msg.axis, constraint_out.axis);
