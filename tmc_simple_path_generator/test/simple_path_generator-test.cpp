@@ -343,7 +343,7 @@ TEST_F(SimplePathGeneratorTest, GenerateWithoutBase) {
   tsr.end_frame_id = "link7";
   tmc_planning_msgs::msg::TsrLinkConstraint tlc;
   tlc.header.frame_id = "odom";
-  tlc.tsr = tsr;
+  tlc.tsrs = {tsr};
 
   constraints_.hard_link_constraints.push_back(tlc);
   constraints_.hard_joint_constraints.clear();

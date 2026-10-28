@@ -63,8 +63,6 @@ std::optional<tmc_robot_kinematics_model::IKRequest> GenerateIKRequest(
   }
   tmc_robot_kinematics_model::IKRequest req(
       static_cast<tmc_manipulation_types::BaseMovementType>(params->base_movement_type));
-  req.frame_name = end_frame;
-  req.frame_to_end = Eigen::Affine3d::Identity();
   req.initial_angle.name = initial_state.joint_state.name;
   req.initial_angle.position = initial_state.joint_state.position;
   req.use_joints = params->ik_joints.at(end_frame);
@@ -87,7 +85,7 @@ std::optional<tmc_robot_kinematics_model::IKRequest> GenerateIKRequest(
   }
 
   req.origin_to_base = initial_state.multi_dof_joint_state.poses[0];
-  req.ref_origin_to_end = origin_to_end;
+  req.target_frames.emplace_back(end_frame, origin_to_end);
   return req;
 }
 
@@ -194,20 +192,18 @@ bool SampleGoalGenerator::SolveIK(const Eigen::Affine3d& origin_to_end,
     return false;
   }
 
-  tmc_manipulation_types::JointState res;
-  Eigen::Affine3d origin_to_hand_result;
-  Eigen::Affine3d origin_to_base_solution;
+  std::vector<tmc_robot_kinematics_model::IKResponse> res;
   tmc_robot_kinematics_model::IKResult result;
   try {
-    result = ik_solver_->Solve(req.value(), res, origin_to_base_solution, origin_to_hand_result);
+    result = ik_solver_->Solve(req.value(), res);
   } catch (std::exception& e) {
     CONSOLE_BRIDGE_logWarn("%s", e.what());
     return false;
   }
-  if (result == tmc_robot_kinematics_model::kSuccess) {
+  if (result == tmc_robot_kinematics_model::kSuccess && !res.empty()) {
     solution_out = initial_state;
-    solution_out.joint_state = res;
-    solution_out.multi_dof_joint_state.poses[0] = origin_to_base_solution;
+    solution_out.joint_state = res[0].solution_angle;
+    solution_out.multi_dof_joint_state.poses[0] = res[0].origin_to_base;
     CONSOLE_BRIDGE_logDebug("IK success");
     return true;
   } else {
